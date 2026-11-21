@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+set -e
+case "$1" in
+remove | upgrade | deconfigure)
+	if dkms status -m nvidia-n1x -v @NVIDIA_VERSION@ | grep -q .; then
+		dkms remove -m nvidia-n1x -v @NVIDIA_VERSION@ --all || true
+	fi
+	;;
+esac

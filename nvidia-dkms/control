@@ -1,0 +1,20 @@
+Package: nvidia-n1x-dkms-@NVIDIA_BRANCH@-open
+Version: @DEB_VERSION@
+Architecture: arm64
+Maintainer: Brandon Sneed <brandon@redf.net>
+Section: kernel
+Priority: optional
+Homepage: https://github.com/bsneed/n1x-kernel-ubuntu
+Depends: dkms, nvidia-kernel-common-@NVIDIA_BRANCH@ (= @NVIDIA_UBUNTU_VERSION@)
+Provides: nvidia-dkms-kernel, nvidia-dkms-@NVIDIA_BRANCH@-open (= @NVIDIA_UBUNTU_VERSION@)
+Conflicts: nvidia-dkms-kernel, nvidia-dkms-@NVIDIA_BRANCH@-open
+Replaces: nvidia-dkms-kernel, nvidia-dkms-@NVIDIA_BRANCH@-open
+Installed-Size: @INSTALLED_SIZE@
+Description: NVIDIA @NVIDIA_VERSION@ open kernel modules with NVIDIA N1x fixes (DKMS)
+ NVIDIA's open GPU kernel modules built from the full source tree through DKMS,
+ with Omarchy's NVIDIA N1x patches (two displays behind one USB4 dock port,
+ DisplayPort link recovery through USB4 tunnels, USB-C outputs reported as
+ DisplayPort, eDP 1.5 OLED brightness, a semaphore callback leak).
+ .
+ Replaces Ubuntu's nvidia-dkms-@NVIDIA_BRANCH@-open for Ubuntu's NVIDIA
+ @NVIDIA_VERSION@ user space, which it must match exactly.

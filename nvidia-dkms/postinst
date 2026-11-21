@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+set -e
+if [ "$1" = configure ]; then
+	/usr/lib/dkms/common.postinst nvidia-n1x @NVIDIA_VERSION@ "" "" "$2"
+	# nvidia-kernel-common's framebuffer-nvidia hook copies updates/dkms/nvidia*.ko into
+	# every initramfs, and the kernel loads them from there at boot. Without this, a
+	# rebuilt module stays behind the copy in the initramfs.
+	if [ -x /usr/sbin/update-initramfs ]; then
+		/usr/sbin/update-initramfs -u -k all
+	fi
+fi
