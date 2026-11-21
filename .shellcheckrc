@@ -1,2 +1,5 @@
 source-path=SCRIPTDIR
 external-sources=true
+# load_sources takes an optional file argument; calling it without one is intended.
+# (Older shellcheck, e.g. 0.9.0 in Ubuntu 24.04, reports it as SC2119.)
+disable=SC2119
