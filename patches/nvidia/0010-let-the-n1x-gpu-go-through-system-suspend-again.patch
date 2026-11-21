@@ -1,0 +1,43 @@
+From b93ce192ec4126e1b297d24b7c12a5e91bde3e4b Mon Sep 17 00:00:00 2001
+From: Brandon Sneed <brandon@redf.net>
+Date: Sat, 21 Nov 2026 13:25:52 -0800
+Subject: [PATCH] nvidia: let the N1x GPU (GB20B) go through system suspend
+ again
+
+620.73.04 adds GB20B and GB20C to the chips whose power management is
+unsupported (gpuIsPowerManagementUnsupported(), which replaced the
+PDB_PROP_GPU_POWER_MANAGEMENT_UNSUPPORTED property of 615.78.08). That
+sets nv->is_pm_unsupported, and nv_suspend_devices() then refuses every
+system suspend with NV_ERR_NOT_SUPPORTED: on an N1x laptop the kernel
+logs "NVRM: PM suspend notifier failed: 0x56" and s2idle aborts at
+once, from logind and from /sys/power/state alike.
+
+GB20B is also the integrated GPU of the N1x laptops (RTX Spark N1X,
+2E03/2E06/2E13), which suspend and resume with 615. Leave GB20B out of
+the check, so it goes through suspend as it did up to 615. Every other
+chip on the list, GB20C included, keeps 620's behaviour.
+---
+ src/nvidia/arch/nvalloc/unix/src/dynamic-power.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/src/nvidia/arch/nvalloc/unix/src/dynamic-power.c b/src/nvidia/arch/nvalloc/unix/src/dynamic-power.c
+index b993b01..48e1ce9 100644
+--- a/src/nvidia/arch/nvalloc/unix/src/dynamic-power.c
++++ b/src/nvidia/arch/nvalloc/unix/src/dynamic-power.c
+@@ -3198,7 +3198,12 @@ void RmInitPowerManagement(
+             nvp->gc6_upstream_port_configured = RmConfigureUpstreamPortForRTD3(nv, NV_TRUE);
+         }
+ 
+-        nv->is_pm_unsupported = gpuIsPowerManagementUnsupported(pGpu);
++        //
++        // GB20B is also the N1x laptops' integrated GPU, which goes through
++        // system suspend (s2idle) as it did up to 615.
++        //
++        nv->is_pm_unsupported = gpuIsPowerManagementUnsupported(pGpu) &&
++                                !IsGB20B(pGpu);
+ 
+         // UNLOCK: release GPUs lock
+         rmGpuLocksRelease(GPUS_LOCK_FLAGS_NONE, NULL);
+-- 
+2.50.1 (Apple Git-155)
+
