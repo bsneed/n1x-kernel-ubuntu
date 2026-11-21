@@ -1,0 +1,5 @@
+# build outputs (scripts/build.sh)
+/build/
+/out/
+*.log
+*.part

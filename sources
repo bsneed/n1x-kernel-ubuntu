@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Pinned inputs of scripts/build.sh. Shell syntax: KEY=value, no spaces.
+# Every download is checked against the SHA-256 here before it is used.
+
+# kernel.org release that Omarchy's recipe builds (pkgver in its PKGBUILD).
+KERNEL_VERSION=7.3
+KERNEL_URL=https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.3.tar.xz
+KERNEL_SHA256=87363c24f10e06321eb362765521094e94471f6bff8bce2d6b3e40f39f004953
+
+# omacom/omarchy-pkgs: linux-omarchy-aarch64 7.3-75 (patches, in its source order).
+OMARCHY_REPO=https://github.com/omacom/omarchy-pkgs.git
+OMARCHY_COMMIT=1204948279749a6827aba7dd4071f4c1c843f412
+OMARCHY_RECIPE=pkgbuilds/linux-omarchy-aarch64
+
+# Base config: /boot/config-7.0.0-1026-nvidia from Ubuntu's linux-nvidia 7.0.0-1026.27,
+# taken from the headers package (usr/src/linux-headers-7.0.0-1026-nvidia/.config).
+BASE_CONFIG_URL=https://launchpad.net/ubuntu/+archive/primary/+files/linux-headers-7.0.0-1026-nvidia_7.0.0-1026.27_arm64.deb
+BASE_CONFIG_SHA256=f1f75b7a9a721640077a98b6528bb898783939f199c5fe2d6aaae931af3ca66e
+BASE_CONFIG_PATH=usr/src/linux-headers-7.0.0-1026-nvidia/.config
+BASE_CONFIG_FILE_SHA256=d93993d453eeb5aad943d7181b3bbc3b3f078088405c04a3a6511e84b098f255
+
+# Our revision of this kernel: uname -r is <kernel>-n1x<N>, e.g. 7.3.0-n1x1.
+N1X_REVISION=1
+
+# NVIDIA open kernel modules, built by our DKMS package with patches/nvidia.
+# Must match the NVIDIA user space (Ubuntu's nvidia-*-620 packages) exactly.
+NVIDIA_VERSION=620.73.04
+NVIDIA_URL=https://download.nvidia.com/XFree86/NVIDIA-kernel-module-source/NVIDIA-kernel-module-source-620.73.04.tar.xz
+NVIDIA_SHA256=3a107b31b22d6f5c8da34e5e22a66e38ccdb7a92ee23266d0e064d3b9635c93f
+# Ubuntu's package revision of that driver (resolute-proposed, Nov 2026).
+NVIDIA_UBUNTU_VERSION=620.73.04-0ubuntu0.26.04.1
+# Our revision of the DKMS package (nvidia-n1x-dkms-620-open 620.73.04-n1x<N>).
+NVIDIA_N1X_REVISION=1
