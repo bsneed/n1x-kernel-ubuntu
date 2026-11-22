@@ -23,6 +23,16 @@ limitation into the README.
     `nouveau: unknown chipset`.
 
   `quiet` still prints error-level messages and `console=tty0` sends them to the screen.
+- [ ] **Dock hotplug is broken on the display side.** Seen 2026-11-21 on 7.3.0-n1x1 + NVIDIA 620:
+  - Unplugging the dock does not fall back to the internal panel (eDP-1); the desktop stays on
+    the absent external until the lid is closed and reopened.
+  - Moving the dock to a different USB-C port brought no picture on the Dell, and tripped a
+    kernel WARN in `nvidia_drm` (`__nv_drm_handle_flip_event+0x218` via `nv_drm_event_callback`
+    / `nvKmsKapiHandleEventQueueChange`) that glitched GNOME. Back on the original port the Dell
+    came up again. dmesg snapshot: rtx24 `/home/bsneed/work/replug-1628/`.
+  - The dock's USB and 10GbE re-enumerate fine; it is only DisplayPort.
+  - See the DP 120 Hz report (`/Users/bsneed/work/n1x-kernel-ubuntu-reports/dp-120hz.md`) for
+    which host router / DP IN adapter each port uses.
 
 ## Power and suspend
 
