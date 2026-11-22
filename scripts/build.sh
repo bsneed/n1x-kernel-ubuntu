@@ -108,13 +108,8 @@ msg "Applying ${#OMARCHY_PATCHES[@]} Omarchy patches"
 for p in "${OMARCHY_PATCHES[@]}"; do
 	apply_patch "$SRC" "$RECIPE/$p" || die "Omarchy patch $p failed"
 done
-shopt -s nullglob
-UBUNTU_PATCHES=("$REPO"/patches/ubuntu/*.patch)
-shopt -u nullglob
-msg "Applying ${#UBUNTU_PATCHES[@]} patches/ubuntu patches"
-for p in "${UBUNTU_PATCHES[@]}"; do
-	apply_patch "$SRC" "$p" || die "patch ${p##*/} failed"
-done
+msg "Applying patches/ubuntu"
+apply_patch_dir "$SRC" "$REPO/patches/ubuntu" || die "a patches/ubuntu patch failed"
 
 # --- Config --------------------------------------------------------------------------------
 msg "Configuring: Ubuntu's linux-nvidia config + config/n1x.config"
