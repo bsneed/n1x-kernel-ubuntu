@@ -70,10 +70,13 @@ dkms_subst nvidia-dkms/control >"$T/control"
 eq "control: no placeholder left" "" "$(grep -o '@[A-Z_]*@' "$T/control")"
 eq "control: version" "Version: 620.73.04-n1x2" "$(grep '^Version:' "$T/control")"
 eq "control: any Ubuntu revision of 620.73.04, as nvidia-driver-620-open's range" \
-	"Depends: dkms, nvidia-kernel-common-620 (>= 620.73.04), nvidia-kernel-common-620 (<= 620.73.04-1)" \
+	"Depends: dkms, g++, nvidia-kernel-common-620 (>= 620.73.04), nvidia-kernel-common-620 (<= 620.73.04-1)" \
 	"$(grep '^Depends:' "$T/control")"
 eq "control: provides what nvidia-driver-620-open depends on" \
 	"Provides: nvidia-dkms-kernel, nvidia-dkms-620-open (= 620.73.04)" "$(grep '^Provides:' "$T/control")"
+# The full source tree has C++ (the DisplayPort library, src/common/displayport); dkms pulls in
+# gcc only, so without g++ the build fails on a system without build-essential.
+eq "control: depends on g++" 1 "$(grep -c '^Depends:.* g++,' "$T/control")"
 eq "control: size" "Installed-Size: 12345" "$(grep '^Installed-Size:' "$T/control")"
 if command -v dpkg >/dev/null; then
 	for v in 620.73.04-0ubuntu0.26.04.1 620.73.04-0ubuntu0.26.04.7; do

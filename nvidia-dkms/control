@@ -5,7 +5,7 @@ Maintainer: Brandon Sneed <brandon@redf.net>
 Section: kernel
 Priority: optional
 Homepage: https://github.com/bsneed/n1x-kernel-ubuntu
-Depends: dkms, nvidia-kernel-common-@NVIDIA_BRANCH@ (>= @NVIDIA_VERSION@), nvidia-kernel-common-@NVIDIA_BRANCH@ (<= @NVIDIA_VERSION@-1)
+Depends: dkms, g++, nvidia-kernel-common-@NVIDIA_BRANCH@ (>= @NVIDIA_VERSION@), nvidia-kernel-common-@NVIDIA_BRANCH@ (<= @NVIDIA_VERSION@-1)
 Provides: nvidia-dkms-kernel, nvidia-dkms-@NVIDIA_BRANCH@-open (= @NVIDIA_VERSION@)
 Conflicts: nvidia-dkms-kernel, nvidia-dkms-@NVIDIA_BRANCH@-open
 Replaces: nvidia-dkms-kernel, nvidia-dkms-@NVIDIA_BRANCH@-open
