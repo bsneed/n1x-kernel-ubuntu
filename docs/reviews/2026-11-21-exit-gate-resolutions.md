@@ -87,15 +87,25 @@ that already ran Ubuntu's 620 (the G1 case).
 4. `--remove` refused by its simulation (an extra, unknown package name appended to
    `nvidia-before`): exit 1, `E: Unable to locate package ... nothing was changed`, and the pin
    in /etc is byte-for-byte unchanged (G5 fixed). The default is still 7.3, the user's choice.
-5. `--remove`, with `update-initramfs` failing after the NVIDIA restore: exit 1, with `ERROR:
+5. `--remove`, with `update-initramfs` failing after the NVIDIA restore. The restore itself
+   succeeded: it asked for the 16 recorded 620 packages, apt found 15 of them already installed
+   and put back only `nvidia-dkms-620-open` (which built its modules for 1025 again), and it
+   removed only `nvidia-headless-no-dkms-620-open` and `nvidia-n1x-dkms-620-open`, the
+   packages the install added. Then `update-initramfs` failed: exit 1, with `ERROR:
    update-initramfs failed ... The NVIDIA packages are back and GRUB boots 7.0.0-1025-nvidia
    by default; ...` (G6). The default was moved to 1025 before the restore, which took our
    modules away from 7.3, so it boots **1025**, not 7.3 (G4 fixed).
-6. `--remove` again: exit 0. The restore asks for the 16 recorded 620 packages, apt finds 15 of
-   them already installed and puts back only `nvidia-dkms-620-open` (which built its modules for
-   1025 again). It removes only `nvidia-headless-no-dkms-620-open` and
-   `nvidia-n1x-dkms-620-open`, the packages the install added. Then it purges
-   `linux-image/headers-7.3.0-n1x1`; GRUB is back to `GRUB_DEFAULT=0`, booting 1025.
+6. `--remove` again: exit 0. The NVIDIA packages were already as recorded, so its restore
+   changes nothing. It purges `linux-image/headers-7.3.0-n1x1`; GRUB is back to
+   `GRUB_DEFAULT=0`, booting 1025.
+
+Correction (H6 of the [re-review](2026-11-21-exit-gate-rereview.md)): an earlier version of
+this record put step 5's package changes under step 6, which contradicted step 5. There was
+no snapshot reset between the two steps. The logs of the run weren't kept, so the order above
+comes from the code, not a log. `update-initramfs` runs only after the restore's `apt-get` has
+succeeded and the pin is removed, so its error in step 5 means the restore had already worked.
+On the re-run, `nvidia_restore_removals` finds no 620 package outside `nvidia-before`, and our
+DKMS package is gone.
 7. Against the state before the install:
    - the NVIDIA and kernel packages (`dpkg-query`, name and version: the 16 620 packages,
      `libnvidia-egl-wayland1` and the four 1025 kernel packages) are **identical**: Ubuntu's
