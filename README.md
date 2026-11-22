@@ -25,7 +25,7 @@ tested. Everything was validated on BIOS 300; recheck after a BIOS update.
 
 | Piece | What it is |
 |---|---|
-| `linux-image-7.3.0-n1x1`, `linux-headers-7.3.0-n1x1` | kernel.org 7.3 + Omarchy's 579 kernel patches in the recipe's order + `patches/ubuntu/` (none so far), on Ubuntu's `linux-nvidia` 7.0.0-1026 config + `config/n1x.config`, built with the kernel's `make bindeb-pkg`. It installs next to Ubuntu's kernels. |
+| `linux-image-7.3.0-n1x1`, `linux-headers-7.3.0-n1x1` | kernel.org 7.3 + Omarchy's 579 kernel patches in the recipe's order + `patches/ubuntu/` (one 7.3.2 stable fix), on Ubuntu's `linux-nvidia` 7.0.0-1026 config + `config/n1x.config`, built with the kernel's `make bindeb-pkg`. It installs next to Ubuntu's kernels. |
 | `nvidia-n1x-dkms-620-open` | NVIDIA's open GPU kernel modules 620.73.04, built from the full source tree through DKMS, with Omarchy's seven N1x patches rebased onto 620 and one suspend fix (`patches/nvidia/`). It stands in for Ubuntu's `nvidia-dkms-620-open`, whose modules link NVIDIA's prebuilt `nv-kernel.o_binary` and `nv-modeset-kernel.o_binary`. Seven of the eight patches change that code, so they can't go in through Ubuntu's package. |
 | NVIDIA user space | Ubuntu's `nvidia-*-620` packages, 620.73.04 (validated with `620.73.04-0ubuntu0.26.04.1`, from `resolute-proposed`): the same set that proart-p16-linux's `install/02-nvidia.sh` installs for 615. |
 
@@ -63,7 +63,9 @@ Ubuntu user space.
   [README](https://github.com/omacom/omarchy-pkgs/blob/master/pkgbuilds/linux-omarchy-aarch64/README.md)
   explains each patch. The N1x USB4 work is 1070–1089, 1105 and 1112; the ProArt P16 gets
   1012, 1106, 1107 and 1108.
-- **`patches/ubuntu/`**: deltas this packaging needs on top of Omarchy. There are none so far.
+- **`patches/ubuntu/`**: deltas this packaging needs on top of Omarchy, applied after its
+  patches the same way. 0001 is the 7.3.2 stable fix for an MT7925 Wi-Fi reset panic that hangs
+  the P16 (upstream c182bfe944eb, CVE-2026-99560); it goes once the base is 7.3.2 or newer.
   Ubuntu-specific needs are config-only (`config/n1x.config`).
 - **`patches/nvidia/`**: Omarchy's `nvidia-open-dkms` 0003–0009 (written for 615.78.08),
   rebased onto 620.73.04. None of them are in 620. 0003, 0004, 0006 and 0008 apply as they
@@ -223,7 +225,8 @@ Billboard devices.
   do. Once Ubuntu moves 620 on to a newer upstream version and drops 620.73.04, `install.sh`
   stops before changing anything, and this repository has to move to that version. The apt pin
   holds the installed user space at the module version.
-- The kernel is kernel.org 7.3, as Omarchy's recipe pins it, without the 7.3.x stable fixes.
+- The kernel is kernel.org 7.3, as Omarchy's recipe pins it, without the 7.3.x stable fixes
+  except the MT7925 reset fix in `patches/ubuntu/`.
 - `thunderbolt-platform NVDA8100: RX overflow for ring 0` appears in the kernel log when a dock
   connects. Nothing has failed because of it.
 - Ubuntu's kernel SAUCE, AppArmor's Ubuntu-only extensions among them, is not in this kernel.

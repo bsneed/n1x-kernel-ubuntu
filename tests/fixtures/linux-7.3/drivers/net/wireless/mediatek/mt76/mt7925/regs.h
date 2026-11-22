@@ -1,0 +1,20 @@
+/* SPDX-License-Identifier: BSD-3-Clause-Clear */
+/* Excerpt of linux-7.3 drivers/net/wireless/mediatek/mt76/mt7925/regs.h, lines 44-60, for tests/t-patch.sh. */
+
+
+/* WFDMA interrupt */
+#define MT_INT_RX_DONE_WM2		HOST_RX_DONE_INT_ENA1
+
+#define MT7925_INT_RX_DONE_DATA		HOST_RX_DONE_INT_ENA2
+#define MT7925_INT_RX_DONE_WM		HOST_RX_DONE_INT_ENA0
+#define MT7925_INT_RX_DONE_ALL		(MT7925_INT_RX_DONE_DATA | \
+					 MT7925_INT_RX_DONE_WM | \
+					 MT_INT_RX_DONE_WM2)
+
+#define MT7927_INT_RX_DONE_DATA		MT7927_RX_DONE_INT_ENA4
+#define MT7927_INT_RX_DONE_WM		MT7927_RX_DONE_INT_ENA6
+#define MT7927_INT_RX_DONE_WM2		MT7927_RX_DONE_INT_ENA7
+#define MT7927_INT_RX_DONE_ALL		(MT7927_INT_RX_DONE_DATA | \
+					 MT7927_INT_RX_DONE_WM | \
+					 MT7927_INT_RX_DONE_WM2)
+

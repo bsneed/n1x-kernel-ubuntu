@@ -59,3 +59,35 @@ fails "patch dir with a patch that does not apply" apply_patch_dir "$T/ptree" "$
 eq "patch dir: the failing patch is named" "0003-again.patch does not apply (already applied upstream, or no longer fits)" \
 	"$(printf 'one\ntwo\nthree\n' >"$T/ptree/src/f.c"; apply_patch_dir "$T/ptree" "$T/pdir" 2>&1 >/dev/null)"
 
+# --- patches/ubuntu --------------------------------------------------------------------------
+for p in patches/ubuntu/*.patch; do
+	[[ -f $p ]] || continue
+	n=${p##*/}
+	eq "$n: named NNNN-short-description.patch" 1 "$([[ $n =~ ^[0-9]{4}-[a-z0-9-]+\.patch$ ]] && echo 1)"
+	eq "$n: git-format header" 1 "$(sed -n 1p "$p" | grep -c '^From [0-9a-f]\{40\} ')"
+	eq "$n: says when to drop it" 1 "$(grep -c '^Drop it when ' "$p")"
+done
+
+# 0001, the mt7925 reset-panic fix, on the 7.3 source it patches (tests/fixtures/linux-7.3 holds
+# excerpts of the two files, which Omarchy's patches do not touch).
+M=patches/ubuntu/0001-mt7925-fix-reset-panic-caused-by-the-wm2-rx-irq-mask.patch
+K=$T/linux-7.3
+MT=$K/drivers/net/wireless/mediatek/mt76/mt7925
+cp -R tests/fixtures/linux-7.3 "$K"
+eq "0001: upstream commit" 1 "$(grep -c '^n1x-kernel-ubuntu: upstream commit c182bfe944eb275f7526cc326f81229b0e974a0c$' "$M")"
+eq "0001: in 7.3.2, and its CVE" 2 "$(grep -c -e 'in 7\.3\.2 as 3c287de98388c3746d8b884de9fd8c3e83f41c04' -e 'CVE-2026-99560' "$M")"
+eq "0001: dropped at 7.3.2" 1 "$(grep -c 'is >= 7\.3\.2' "$M")"
+irq_map() { sed -n '/^static const struct mt792x_irq_map mt7925_irq_map = {$/,/^};$/p' "$MT/pci.c"; }
+eq "0001 fixture: 7.3's mt7925_irq_map sets the WM2 mask" 1 "$(irq_map | grep -c wm2_complete_mask)"
+eq "0001 applies to 7.3" 0 "$(apply_patch "$K" "$M" >/dev/null 2>&1; echo $?)"
+eq "0001: mt7925_irq_map has no WM2 mask" 0 "$(irq_map | grep -c wm2_complete_mask)"
+eq "0001: mt7925_irq_map keeps its other masks" 3 "$(irq_map | grep -c -e '\.all_complete_mask = MT7925_' -e '\.data_complete_mask' -e '\.wm_complete_mask')"
+eq "0001: MT7925_INT_RX_DONE_ALL without WM2" \
+	'#define MT7925_INT_RX_DONE_ALL (MT7925_INT_RX_DONE_DATA | \ MT7925_INT_RX_DONE_WM)' \
+	"$(sed -n '/^#define MT7925_INT_RX_DONE_ALL/,/)$/p' "$MT/regs.h" | paste -sd' ' - | tr -s '\t ' ' ')"
+eq "0001: MT7927 and MT7928 keep their WM2 masks" 2 "$(grep -c '\.wm2_complete_mask = ' "$MT/pci.c")"
+cp -R "$MT" "$T/mt7925-fixed"
+fails "0001 on a tree that has it (7.3.2) fails the build" apply_patch "$K" "$M"
+# (patch leaves its .rej files; the build stops there anyway)
+eq "0001 on a tree that has it is not reverted" "" "$(diff -r -x '*.rej' "$T/mt7925-fixed" "$MT")"
+unset -f irq_map
