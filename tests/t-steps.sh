@@ -24,7 +24,7 @@ grub-editenv() { # grub-editenv - list | unset VAR
 	unset) echo "grub-editenv unset $3" >>"$T/steps-log" ;;
 	esac
 }
-# shellcheck disable=SC2329 # called as "grub-$1" by grub_point
+# shellcheck disable=SC2317,SC2329 # called as "grub-$1" by grub_point (SC2317 before shellcheck 0.10)
 grub-set-default() { echo "grub-set-default $1" >>"$T/steps-log"; printf 'saved_entry=%s\n' "$1" >"$T/steps-env"; }
 steps() { : >"$T/steps-log"; ("$@") >/dev/null 2>"$T/steps-err"; echo "$?|$(paste -sd'|' "$T/steps-log")"; }
 
