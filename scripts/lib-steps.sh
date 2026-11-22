@@ -82,6 +82,12 @@ grub_keep_fallback() {
 	grub_default_is "$RELEASE" || grub_point set-default "$1"
 }
 
+# grub_back_to PREV: GRUB boots PREV from the next boot on, with no one-time boot pending.
+grub_back_to() {
+	grub-editenv - unset next_entry
+	grub_point set-default "$1"
+}
+
 # Writes (or refreshes) the nvidia-persistenced override when the packaged unit has the
 # ordering cycle, and drops ours when it no longer does. An override someone else wrote stays.
 persistenced_apply() {

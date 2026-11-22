@@ -75,9 +75,11 @@ that has been removed since are left out, and the metapackage brings the current
 stay, and Ubuntu's `nvidia-dkms-620-open` comes back) and every `linux-image/headers-*-n1x*`
 package, removes the apt pin, our nvidia-persistenced override and our `pci=` options, and
 points GRUB's default back at the kernel that was running at install time (Ubuntu's
-`linux-nvidia`; the newest installed one if that kernel is gone). The kernel command line and `GRUB_DEFAULT` go back to what they
-were before the first install (a `pci=` value of yours that the install replaced comes back;
-an option you had already stays); a later edit of your own to either is kept. It simulates
+`linux-nvidia`; the newest installed one if that kernel is gone). It does that before it
+removes any package, so a failure partway through still boots that kernel. The kernel command
+line and `GRUB_DEFAULT` go back to what they were before the first install (a `pci=` value of
+yours that the install replaced comes back; an option you had already stays); a later edit of
+your own to either is kept. It simulates
 both apt transactions first and keeps the apt pin until the NVIDIA packages are back, so a
 failure leaves a consistent 620 install that `--remove` can be run on again.
 

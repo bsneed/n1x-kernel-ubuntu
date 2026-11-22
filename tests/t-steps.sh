@@ -60,4 +60,14 @@ rm "$T/steps-update-grub-fails"
 # shellcheck disable=SC2016 # a literal $(...) in the file
 printf 'GRUB_DEFAULT=$(echo 0)\n' >"$GRUB_FILE"
 eq "keep fallback: a GRUB_DEFAULT it can't edit stops first" "1|" "$(steps grub_keep_fallback 7.0.0-1026-nvidia)"
+
+# --- --remove points GRUB back at the old kernel (G4) ---------------------------------------------
+mkcfg 7.3.0-n1x1 7.0.0-1026-nvidia >"$GRUB_CFG"
+printf 'saved_entry=%s\n' "$(id_of 7.3.0-n1x1)" >"$T/steps-env"
+eq "back to: drops a pending one-time boot, then the old kernel the default" \
+	"0|grub-editenv unset next_entry|grub-set-default $(id_of 7.0.0-1026-nvidia)" "$(steps grub_back_to 7.0.0-1026-nvidia)"
+eq "back to: the old kernel is saved_entry" "$(id_of 7.0.0-1026-nvidia)" "$(grub_saved_entry)"
+eq "back to: twice is the same" "0|grub-editenv unset next_entry|grub-set-default $(id_of 7.0.0-1026-nvidia)" \
+	"$(steps grub_back_to 7.0.0-1026-nvidia)"
+eq "back to: a kernel without an entry stops" "1|grub-editenv unset next_entry" "$(steps grub_back_to 7.0.0-1020-nvidia)"
 unset -f mkcfg id_of update-grub grub-editenv grub-set-default steps

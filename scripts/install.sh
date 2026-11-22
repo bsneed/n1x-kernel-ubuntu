@@ -193,6 +193,10 @@ do_remove() {
 	apt_simulate "$TMP/allowed" "" "" install "${want[@]}" "${remove[@]/%/-}"
 	[[ ${#kpkgs[@]} -eq 0 ]] || apt_simulate "$TMP/kallowed" "" "" purge "${kpkgs[@]}"
 
+	# Before the restore takes our modules away from every kernel, 7.3 included: a failure from
+	# here on must leave GRUB booting $prev, which gets its NVIDIA driver back.
+	msg "GRUB default: $prev"
+	grub_back_to "$prev"
 	msg "Restoring NVIDIA: ${want[*]:-(none)}${remove[*]:+; removing ${remove[*]}}"
 	"${APT[@]}" install "${want[@]}" "${remove[@]/%/-}" ||
 		die "restoring the NVIDIA packages failed (see above); the apt pin stays, so 620 stays whole. Fix that and run --remove again"
@@ -217,8 +221,7 @@ do_remove() {
 		"${APT[@]}" purge "${kpkgs[@]}"
 	fi
 	update-grub
-	grub-editenv - unset next_entry
-	grub_point set-default "$prev"
+	grub_back_to "$prev"
 	rm -rf "$STATE"
 	echo
 	echo "Removed. GRUB boots $prev by default again; reboot if you ran the N1x kernel."
