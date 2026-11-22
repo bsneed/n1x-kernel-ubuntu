@@ -183,15 +183,20 @@ do_remove() {
 	mapfile -t remove < <(dpkg_installed | nvidia_restore_removals "$BRANCH" "$NV_DKMS" "$STATE/nvidia-before")
 	mapfile -t kpkgs < <(dpkg-query -W -f '${db:Status-Abbrev}${Package}\n' | n1x_kernel_pkgs)
 	proposed_enable
-	# The pin stays until the restore has worked, so a failure can't leave 620 unpinned.
+	# The pin stays until the restore has worked, so a failure can't leave 620 unpinned. Putting
+	# Ubuntu's DKMS package back needs it without its -1 stanza; the simulation reads that pin
+	# from a copy of preferences.d, so a refusal leaves the one in /etc as it was.
+	mkdir "$TMP/prefs"
+	cp -a /etc/apt/preferences.d/. "$TMP/prefs/"
 	if printf '%s\n' "${want[@]}" | grep -qx "nvidia-dkms-$BRANCH-open"; then
-		nvidia_pin_text "$BRANCH" "$NVIDIA_VERSION" user-space-only >"$PIN"
+		nvidia_pin_text "$BRANCH" "$NVIDIA_VERSION" user-space-only >"$TMP/prefs/${PIN##*/}"
 	fi
 	printf '%s\n' "${remove[@]}" >"$TMP/allowed"
 	printf '%s\n' "${kpkgs[@]}" >"$TMP/kallowed"
 	msg "Checking the apt transactions (apt-get -s)"
-	apt_simulate "$TMP/allowed" "" "" install "${want[@]}" "${remove[@]/%/-}"
+	apt_simulate "$TMP/allowed" "" "" -o Dir::Etc::PreferencesParts="$TMP/prefs" install "${want[@]}" "${remove[@]/%/-}"
 	[[ ${#kpkgs[@]} -eq 0 ]] || apt_simulate "$TMP/kallowed" "" "" purge "${kpkgs[@]}"
+	[[ ! -f $TMP/prefs/${PIN##*/} ]] || cp "$TMP/prefs/${PIN##*/}" "$PIN"
 
 	# Before the restore takes our modules away from every kernel, 7.3 included: a failure from
 	# here on must leave GRUB booting $prev, which gets its NVIDIA driver back.
