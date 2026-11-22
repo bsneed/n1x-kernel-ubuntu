@@ -89,6 +89,8 @@ do_install() {
 		prev=$(uname -r)
 		is_n1x_release "$prev" && die "running $prev but $STATE is missing; boot an Ubuntu kernel first"
 	fi
+	ubuntu_nvidia_kernel "$prev" ||
+		warn "GRUB falls back to $prev, which is not Ubuntu's linux-nvidia kernel and may lack the N1x drivers (keyboard, touchpad, display); --remove goes back to it too. On the ProArt P16, run proart-p16-linux first (its install/01-kernel.sh installs linux-nvidia) and boot that kernel."
 	[[ -d $MODULES_ROOT/$prev/build ]] ||
 		die "$prev, GRUB's default, has no headers, so it would get no NVIDIA driver (sudo apt install linux-headers-$prev)"
 	local installed

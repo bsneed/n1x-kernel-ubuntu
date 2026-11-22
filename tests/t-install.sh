@@ -123,6 +123,14 @@ else
 	skip "deb_vs_installed" "no dpkg-deb"
 fi
 
+# --- the fallback kernel -----------------------------------------------------------------------
+for k in 7.0.0-1026-nvidia 7.0.0-1026-nvidia-64k 7.1.0-3-nvidia; do
+	eq "$k is Ubuntu's linux-nvidia" 0 "$(ubuntu_nvidia_kernel "$k"; echo $?)"
+done
+for k in 7.0.0-44-generic 7.3.0-n1x1 7.0.0-1026-nvidia-foo nvidia 7.0.0-nvidia; do
+	eq "$k is not Ubuntu's linux-nvidia" 1 "$(ubuntu_nvidia_kernel "$k"; echo $?)"
+done
+
 # --- the N1x GPU ------------------------------------------------------------------------------
 mkpci() { mkdir -p "$T/pci-$1/$2" && printf '%s\n' "$3" >"$T/pci-$1/$2/vendor" && printf '%s\n' "$4" >"$T/pci-$1/$2/device"; }
 mkpci p16 0000:00:00.0 0x10de 0x22ce

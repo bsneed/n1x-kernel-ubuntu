@@ -11,12 +11,15 @@ and everything it needs. This repository builds that recipe, unchanged, for Ubun
 Ubuntu's user space: Ubuntu's kernel config, Ubuntu's NVIDIA packages, and the userspace setup
 of [proart-p16-linux](https://github.com/LeonMarzollDev/proart-p16-linux).
 
-**Status:** works on the ASUS ProArt P16 H7607BA (BIOS H7607BA.300) with Ubuntu 26.04, as a
-second kernel next to Ubuntu's. Validated on 2026-11-21: USB4 docks (displays, USB 3, 10GbE),
-s2idle, NVIDIA 620 and the proart-p16-linux setup. Its `tools/check.sh` gives 44 OK, 1 WARN,
-0 FAIL, as on Ubuntu's kernel, except that some boots add a WARN for SoundWire probe-deferral
-messages (`mtk_sdw_mc … -517`). See [Known issues](#known-issues). Everything was validated on
-BIOS 300; recheck after a BIOS update.
+**Status:** works on one machine, an ASUS ProArt P16 H7607BA (18-core RTX Spark N1X, GPU
+10de:2e06, BIOS H7607BA.300) with Ubuntu 26.04 and proart-p16-linux, as a second kernel next to
+Ubuntu's. Validated on 2026-11-21 with a CalDigit TS5 Plus dock and a Dell U4025QW monitor:
+USB4 (DisplayPort, USB 3, 10GbE), s2idle, NVIDIA 620 and the proart-p16-linux setup. Its
+`tools/check.sh` gives 44 OK, 1 WARN, 0 FAIL, as on Ubuntu's kernel, except that some boots add
+a WARN for SoundWire probe-deferral messages (`mtk_sdw_mc … -517`). Not everything works yet:
+the dock's monitor runs at 60 Hz at most, and replugging a dock loses its display (see
+[Known issues](#known-issues)); see [Supported hardware](#supported-hardware) for what was not
+tested. Everything was validated on BIOS 300; recheck after a BIOS update.
 
 ## What's in it
 
@@ -24,7 +27,7 @@ BIOS 300; recheck after a BIOS update.
 |---|---|
 | `linux-image-7.3.0-n1x1`, `linux-headers-7.3.0-n1x1` | kernel.org 7.3 + Omarchy's 579 kernel patches in the recipe's order + `patches/ubuntu/` (none so far), on Ubuntu's `linux-nvidia` 7.0.0-1026 config + `config/n1x.config`, built with the kernel's `make bindeb-pkg`. It installs next to Ubuntu's kernels. |
 | `nvidia-n1x-dkms-620-open` | NVIDIA's open GPU kernel modules 620.73.04, built from the full source tree through DKMS, with Omarchy's seven N1x patches rebased onto 620 and one suspend fix (`patches/nvidia/`). It stands in for Ubuntu's `nvidia-dkms-620-open`, whose modules link NVIDIA's prebuilt `nv-kernel.o_binary` and `nv-modeset-kernel.o_binary`. Seven of the eight patches change that code, so they can't go in through Ubuntu's package. |
-| NVIDIA user space | Ubuntu's `nvidia-*-620` packages, version `620.73.04-0ubuntu0.26.04.1`: the same set that proart-p16-linux's `install/02-nvidia.sh` installs for 615. |
+| NVIDIA user space | Ubuntu's `nvidia-*-620` packages, 620.73.04 (validated with `620.73.04-0ubuntu0.26.04.1`, from `resolute-proposed`): the same set that proart-p16-linux's `install/02-nvidia.sh` installs for 615. |
 
 Every input is pinned in [`sources`](sources) (kernel tarball and NVIDIA source SHA-256,
 omarchy-pkgs commit, the Ubuntu package the base config comes from) and is checked before use.
@@ -89,7 +92,16 @@ depends on. The build fails if any line does not survive `olddefconfig`
 
 | Machine | BIOS | Result |
 |---|---|---|
-| ASUS ProArt P16 H7607BA (RTX Spark N1X, 5120-core GPU, 10de:2e06) | H7607BA.300 | Tested, works |
+| ASUS ProArt P16 H7607BA: RTX Spark N1X with the 18-core CPU and the 5120-core GPU (10de:2e06) | H7607BA.300 | Tested, works, with the known issues below |
+
+Tested on it: the internal OLED panel (eDP), the keyboard, touchpad, speakers, headphones and
+microphone (through proart-p16-linux), s2idle with keyboard wake, NVIDIA 620 (`nvidia-smi`,
+glmark2), and over USB4 a CalDigit TS5 Plus dock (USB 3, 10GbE) with a Dell U4025QW monitor
+(DisplayPort, its USB hub and 2.5GbE) behind it.
+
+Not tested on 7.3: the HDMI output, the internal camera, a monitor plugged straight into a USB-C
+port, two monitors at once, eGPUs and other USB4/Thunderbolt devices than these two, and the
+6144-core N1X (10de:2e03, 2e13). `install.sh` refuses to run without one of the three N1X GPUs.
 
 Other N1x laptops that Omarchy's recipe supports (ProArt P14, Zenbook A14/A16, Dell, Lenovo,
 Surface) should work with the same packages. They are untested here. The `pci=` values in
@@ -140,6 +152,25 @@ The `debs` job in `.github/workflows/build.yml` runs the same build on GitHub's
 
 ## Install
 
+### Before you start
+
+On the ProArt P16 the supported and tested order is:
+
+1. Ubuntu 26.04 with [proart-p16-linux](https://github.com/LeonMarzollDev/proart-p16-linux) run
+   completely (`install/01`–`11`, then `user/install-user.sh`), and its `tools/check.sh` clean.
+   (The P16 here ran 01–07, 09 and 11; 08, the camera, and 10, power, were skipped.)
+2. Then build and install n1x-kernel-ubuntu, as below.
+
+That order matters. The fallback kernel and `--remove` go back to what proart-p16-linux's 01
+and 02 install, Ubuntu's `linux-nvidia` with NVIDIA 615. The battery and speaker tuning come from
+its DKMS modules, and `acpi_osi` on the command line comes from its 01. `install.sh` warns when
+the kernel it falls back to isn't a `linux-nvidia` one.
+
+proart-p16-linux is for the P16 only. On another N1x laptop, set up a working Ubuntu
+`linux-nvidia` kernel with Ubuntu's NVIDIA driver first. That route is untested.
+
+### Install
+
 On the laptop, with the packages in `out/` (copied there, or built there):
 
 ```sh
@@ -149,60 +180,12 @@ bash scripts/check.sh            # kernel, USB4, NVIDIA
 sudo bash scripts/install.sh --default   # after a good boot: make it GRUB's default
 ```
 
-Secure Boot must be off: the kernel is signed with a throwaway build key, which shim and the
-firmware don't trust, so `install.sh` stops if `mokutil --sb-state` reports it on.
-
-`install.sh` first checks everything it can without changing anything: the packages in `out/`
-against `SHA256SUMS` (a package rebuilt under a version that is already installed is refused;
-raise the revision in `sources`), `/etc/default/grub`, and the whole apt transaction, which it
-simulates (`apt-get -s`). It stops if apt can't do it, would remove anything it didn't ask for,
-or would install a NVIDIA 620 package of another version than 620.73.04. Then it:
-
-1. Installs the kernel and headers packages.
-2. Installs NVIDIA 620: Ubuntu's user space, taken from `resolute-proposed` while 620 is only
-   there (that source is temporary, pinned to priority 1 and removed when the script ends),
-   and `nvidia-n1x-dkms-620-open`. It removes the packages of other NVIDIA driver versions
-   (a 615 or 580 in the name: e.g. `nvidia-utils-615`, `nvidia-firmware-615-*` and the
-   prebuilt `linux-modules-nvidia-615-open-*`) and Ubuntu's `nvidia-dkms-620-open`, and
-   nothing else: `nvidia-settings`, `nvidia-prime`, `nvidia-container-toolkit`,
-   `libnvidia-container1` and other packages of no particular driver version stay. It builds
-   the DKMS modules for every kernel with headers, Ubuntu's `linux-nvidia` included, so the
-   fallback kernel keeps a GPU driver; if that build fails for any kernel that boots, it stops
-   with an error before touching GRUB. It then refreshes every initramfs, since the kernel
-   loads the NVIDIA modules from there.
-3. Writes `/etc/apt/preferences.d/n1x-kernel-ubuntu-nvidia`, which holds the NVIDIA user space
-   at the module version: 620.73.04, any Ubuntu revision of it (see [Updates](#updates)).
-4. Adds `pci=hpbussize=0x80,hpmmiosize=32M,hpmmioprefsize=32G` to
-   `GRUB_CMDLINE_LINUX_DEFAULT`. Docks need this PCI hotplug padding behind the USB4 tunnel
-   root ports; the values are Omarchy's for the ProArt P14/P16. Running it again changes
-   nothing. An existing `pci=` keeps its other options. It stops before changing anything if
-   `/etc/default/grub` sets the variable in a form it can't edit (indented, `export`), or if a
-   file in `/etc/default/grub.d/` replaces it; after `update-grub` it checks that `grub.cfg`
-   boots the new kernel with these options.
-5. Keeps the running kernel as GRUB's default and boots the new one once (`grub-reboot`). A
-   hang or SoC reset on that boot falls back to the old kernel on the next one. That needs
-   `GRUB_DEFAULT=saved` (proart-p16-linux sets it; stock Ubuntu has `0`, which boots the
-   newest kernel whatever `grub-set-default` says), so `install.sh` sets it and `--remove`
-   puts the old value back. After `--default`, running `install.sh` again keeps the new kernel
-   as the default.
-6. Writes `/etc/systemd/system/nvidia-persistenced.service` when Ubuntu's unit needs it.
-   `nvidia-compute-utils-620`'s unit says `Before=systemd-backlight@backlight:nvidia_0.service`
-   but runs after `sysinit.target`, which that backlight unit runs before: on the N1x, whose
-   panel backlight is the NVIDIA GPU's, systemd reports `Found ordering cycle` at every boot
-   and drops a job to break it. A drop-in can't take an entry out of `Before=`, so the file is
-   the packaged unit without that line, with a header saying so. Every run of `install.sh`
-   writes it again from the installed unit (run it after an NVIDIA update), and deletes it once
-   the packaged unit no longer has the line. An override you wrote yourself is left alone.
-
-It records what it replaced in `/var/lib/n1x-kernel-ubuntu`.
-
-### Kernel command line
-
-- `acpi_osi="!Windows 2022"` (from proart-p16-linux) stays. Ubuntu's `linux-nvidia` kernel
-  needs it to see the SSPM, and GRUB's command line is shared by every kernel. On this kernel
-  it overrides Omarchy's `_OSI` quirk (1106), which exposes the SSPM the same way.
-- No `mem_sleep_default=s2idle`: 1113 makes s2idle the default.
-- No `power_wrap_drv.usb4_release=0`: 1112 makes that the default on N1x laptops.
+Secure Boot must be off (the kernel is signed with a throwaway key). `install.sh` checks
+everything it can, the whole apt transaction included, before it changes anything. It replaces
+only the packages of other NVIDIA driver versions, builds the NVIDIA modules for every kernel,
+pins the NVIDIA user space to 620.73.04, adds the USB4 `pci=` options, and boots the new
+kernel once. [docs/install.md](docs/install.md) has each step, the kernel command line, what
+`--remove` undoes and how updates work.
 
 ### Docks
 
@@ -219,24 +202,51 @@ Billboard devices.
 
 ## Known issues
 
+- A monitor behind the dock runs at 60 Hz at most: the Dell U4025QW through the CalDigit TS5
+  Plus offers 60 Hz on 7.3 + NVIDIA 620, where the same monitor, dock and cable run 5120x2160 at
+  120 Hz on a Mac. The cause is still open (DSC through the tunnel, the tunnel's bandwidth
+  allocation, or the mode list); see [TODO.md](TODO.md).
+- Dock display hotplug is broken. Unplugging the dock doesn't move the desktop back to the
+  internal panel until the lid is closed and opened. Moving the dock to another USB-C port gave
+  no picture, plus a kernel WARN in `nvidia_drm` (`__nv_drm_handle_flip_event`). The dock's USB
+  and Ethernet come back fine; only DisplayPort doesn't. Once, minutes after a replug, the PCIe
+  hotplug path (`irq/…-pciehp`) held a lock long enough to stall NetworkManager and tailscaled
+  for two minutes. Plug the dock in before logging in, and keep it on one port. Details are in
+  [TODO.md](TODO.md).
 - In s2idle only the internal keyboard and the power button wake the P16. None of these do:
   RTC alarms (rtc0; rtc1 returns EIO), Wake-on-LAN through the dock, USB devices on the dock,
   and Wi-Fi WoWLAN. The likely cause is BIOS 300's ACPI tables: the PCIe root ports (`RP0`)
   have `_S0W` 0x04 but no `_PRW`, so nothing behind them can signal a wake
   (seankd3/asus-proart-p16-rtx-spark-linux#10).
-- NVIDIA 620's user space is in `resolute-proposed` only (Nov 2026). The apt pin holds it at
-  the module version.
+- NVIDIA 620's user space is in `resolute-proposed` only (Nov 2026), so a fresh install needs
+  620.73.04 to still be published there or in `-updates`. Any Ubuntu revision of 620.73.04 will
+  do. Once Ubuntu moves 620 on to a newer upstream version and drops 620.73.04, `install.sh`
+  stops before changing anything, and this repository has to move to that version. The apt pin
+  holds the installed user space at the module version.
 - The kernel is kernel.org 7.3, as Omarchy's recipe pins it, without the 7.3.x stable fixes.
 - `thunderbolt-platform NVDA8100: RX overflow for ring 0` appears in the kernel log when a dock
   connects. Nothing has failed because of it.
-- Ubuntu's kernel SAUCE (AppArmor's Ubuntu-only extensions among them) is not in this kernel.
-  AppArmor loads the snap profiles, and proart-p16-linux's snap EGL check passes; snap
-  confinement was not tested further.
+- Ubuntu's kernel SAUCE, AppArmor's Ubuntu-only extensions among them, is not in this kernel.
+  AppArmor is enabled and loads the snap profiles, and proart-p16-linux's snap EGL check passes.
+  Two differences from stock Ubuntu: `kernel.apparmor_restrict_unprivileged_userns` doesn't exist,
+  so unprivileged user namespaces aren't restricted as Ubuntu restricts them, and the snap
+  `prompting-client` service fails. Snap confinement was not tested further.
 - proart-p16-linux's kernel-error check sometimes WARNs on SoundWire probe deferral
   (`mtk_sdw_mc: failed to parse sdw devices/endpoints: -517`), which the kernel retries. Audio
   works.
 - nvidia-powerd isn't in Ubuntu's arm64 620 packages. NVIDIA's aarch64 `.run` has it
   (version 2.0), but it exits at once on the P16 without reporting NVPCF.
+
+## FAQ
+
+- **Red "Dependency failed for sssd-…socket" lines at boot?** Those are stock Ubuntu 26.04,
+  not this kernel: sssd's sockets are enabled with no `/etc/sssd/sssd.conf`. If you don't use
+  sssd, silence them with
+  `sudo systemctl disable sssd-{nss,autofs,pac,pam,ssh,sudo}.socket`. `install.sh` doesn't do
+  that for you.
+- **An orange "Found ordering cycle" line at boot?** That one is Ubuntu's nvidia-persistenced
+  unit, and `install.sh` takes care of it ([step 6](docs/install.md#what-installsh-does)).
+  Run `install.sh` again after an NVIDIA update.
 
 ## Remove
 
@@ -245,34 +255,14 @@ sudo bash scripts/install.sh --remove
 sudo reboot
 ```
 
-This reinstalls the NVIDIA packages that were there before (by name, at the version the
-archive has now, e.g. Ubuntu's 615 and its prebuilt modules for `linux-nvidia`: the exact
-versions from back then may be gone after a security update), purges
-`nvidia-n1x-dkms-620-open`, the 620 user space and every `linux-image/headers-*-n1x*`
-package, removes the apt pin, our nvidia-persistenced override and our `pci=` options, and points GRUB's default back at the kernel that was running at install time
-(Ubuntu's `linux-nvidia`). The kernel command line and `GRUB_DEFAULT` go back to what they
-were before the first install (a `pci=` value of yours that the install replaced comes back;
-an option you had already stays); a later edit of your own to either is kept. It simulates
-both apt transactions first and keeps the apt pin until the NVIDIA packages are back, so a
-failure leaves a consistent 620 install that `--remove` can be run on again.
+This puts back the NVIDIA packages, GRUB settings and kernel command line from before the
+install, and purges the N1x kernel packages ([details](docs/install.md#what---remove-does)).
 
 ## Updates
 
-- **Ubuntu kernels**: unaffected. A new `linux-nvidia` kernel gets our NVIDIA modules from
-  DKMS when its headers are installed, as it would with Ubuntu's DKMS package.
-- **NVIDIA user space**: the apt pin holds the upstream version 620.73.04 and takes any Ubuntu
-  revision of it, so it follows the move from `-proposed` to `-updates` and Ubuntu's respins
-  of 620.73.04 (security fixes Ubuntu backports into this version included). It also holds
-  back every newer NVIDIA release, security releases included: those wait until this
-  repository moves to them, since the modules must be built from the same version. Moving to
-  a newer driver means changing `NVIDIA_VERSION` in `sources`, re-checking `patches/nvidia`,
-  rebuilding and running `install.sh` again. Watch NVIDIA's security bulletins while you run
-  this. A change to `patches/nvidia` alone raises `NVIDIA_N1X_REVISION`, so dpkg sees a new
-  version. The package refreshes every initramfs when it installs, because the kernel loads
-  the NVIDIA modules from there.
-- **This kernel**: a new Omarchy pin or kernel.org version is a change to `sources`, with
-  `N1X_REVISION` raised. Each revision is a new package name (`linux-image-7.3.0-n1x2`), so it
-  installs next to the previous one, as Ubuntu's kernels do.
+Ubuntu kernels get our NVIDIA modules through DKMS. The NVIDIA user space stays at 620.73.04,
+so newer NVIDIA releases, security releases among them, wait until this repository moves to
+them ([details](docs/install.md#updates)).
 
 ## Tests
 

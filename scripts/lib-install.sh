@@ -95,6 +95,12 @@ secure_boot_enabled() {
 	[[ -r $var && $(od -An -tu1 -j4 -N1 "$var" | tr -d ' ') == 1 ]]
 }
 
+# ubuntu_nvidia_kernel RELEASE: true for Ubuntu's linux-nvidia kernels (7.0.0-1026-nvidia and
+# its -64k sibling), the Ubuntu kernels with the N1x platform drivers.
+ubuntu_nvidia_kernel() {
+	[[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+-nvidia(-64k)?$ ]]
+}
+
 # kernels_bootable: every kernel release with a /boot/vmlinuz-<release> and modules.
 kernels_bootable() {
 	local d k
