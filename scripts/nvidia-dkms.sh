@@ -13,20 +13,22 @@
 #           (scripts/build.sh runs it)
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib-build.sh"
 
 TARBALL='' OUTDIR='' JOBS=$(nproc) TEST_KERNEL=''
 while [[ $# -gt 0 ]]; do
 	case $1 in
-	--tarball) TARBALL=$2; shift 2 ;;
-	--out) OUTDIR=$2; shift 2 ;;
-	--jobs) JOBS=$2; shift 2 ;;
-	--test-kernel) TEST_KERNEL=$2; shift 2 ;;
+	--tarball) need_arg $# "$1"; TARBALL=$2; shift 2 ;;
+	--out) need_arg $# "$1"; OUTDIR=$2; shift 2 ;;
+	--jobs) need_arg $# "$1"; JOBS=$2; shift 2 ;;
+	--test-kernel) need_arg $# "$1"; TEST_KERNEL=$2; shift 2 ;;
 	*) die "unknown option $1" ;;
 	esac
 done
 [[ -f $TARBALL && -d $OUTDIR ]] || die "usage: $0 --tarball FILE --out DIR [--test-kernel KSRC]"
 load_sources
 verify_sha256 "$TARBALL" "$NVIDIA_SHA256"
+COMMIT=$(source_commit) || die "build from a git checkout of n1x-kernel-ubuntu (the package records its commit)"
 
 BRANCH=${NVIDIA_VERSION%%.*}
 NAME=nvidia-n1x
@@ -49,16 +51,12 @@ sed -i -e 's/^  HOSTNAME.*/  HOSTNAME = echo n1x-kernel-ubuntu/' \
 	-e 's/^WHOAMI.*/WHOAMI = echo n1x-kernel-ubuntu/' \
 	-e 's/^DATE.*/DATE = date -r version.mk/' "$TREE/utils.mk"
 
-subst() {
-	sed -e "s/@NVIDIA_VERSION@/$NVIDIA_VERSION/g" -e "s/@NVIDIA_BRANCH@/$BRANCH/g" \
-		-e "s/@NVIDIA_UBUNTU_VERSION@/$NVIDIA_UBUNTU_VERSION/g" \
-		-e "s/@DEB_VERSION@/$DEB_VERSION/g" -e "s/@INSTALLED_SIZE@/${SIZE:-0}/g" "$1"
-}
-subst "$REPO/nvidia-dkms/dkms.conf" >"$TREE/dkms.conf"
+dkms_subst "$REPO/nvidia-dkms/dkms.conf" >"$TREE/dkms.conf"
 mkdir -p "$TREE/patches"
 cp "$REPO"/nvidia-dkms/patches/*.patch "$TREE/patches/"
 cp "$REPO"/patches/nvidia/*.patch "$TREE/patches/" # for reference; already applied
 cp "$TREE/COPYING" "$WORK/root/usr/share/doc/$PKG/copyright"
+printf 'https://github.com/bsneed/n1x-kernel-ubuntu commit %s\n' "$COMMIT" >"$WORK/root/usr/share/doc/$PKG/SOURCE"
 
 if [[ -n $TEST_KERNEL ]]; then
 	msg "Test-building the NVIDIA modules against $TEST_KERNEL"
@@ -75,9 +73,12 @@ if [[ -n $TEST_KERNEL ]]; then
 fi
 
 SIZE=$(du -sk "$WORK/root" | cut -f1)
-subst "$REPO/nvidia-dkms/control" >"$WORK/root/DEBIAN/control"
+dkms_subst "$REPO/nvidia-dkms/control" >"$WORK/root/DEBIAN/control"
+# The files' checksums, so dpkg --verify and install.sh's same-version check can use them.
+(cd "$WORK/root" && find . -path ./DEBIAN -prune -o -type f -printf '%P\0' | LC_ALL=C sort -z |
+	xargs -0r md5sum) >"$WORK/root/DEBIAN/md5sums"
 for s in postinst prerm postrm; do
-	subst "$REPO/nvidia-dkms/$s" >"$WORK/root/DEBIAN/$s"
+	dkms_subst "$REPO/nvidia-dkms/$s" >"$WORK/root/DEBIAN/$s"
 	chmod 755 "$WORK/root/DEBIAN/$s"
 done
 rm -f "$OUTDIR/${PKG}_"*.deb

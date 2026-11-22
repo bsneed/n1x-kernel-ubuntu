@@ -9,22 +9,27 @@
 # kernel's own `make bindeb-pkg`. It also builds the NVIDIA open modules' DKMS package
 # (scripts/nvidia-dkms.sh) and test-builds those modules against the new kernel.
 # Every input is pinned in ./sources and checked against its SHA-256 (git commit for Omarchy).
-# Output: out/*.deb and out/SHA256SUMS. Work tree: build/ (safe to delete).
+# The checkout must be clean (its commit goes into out/SOURCE and the DKMS package and sets
+# the build timestamps); --allow-dirty builds anyway and marks the commit -dirty.
+# Output: out/*.deb, out/SHA256SUMS and out/SOURCE. Work tree: build/ (safe to delete).
 # Remove: rm -rf build out
-# Run with: bash scripts/build.sh [--jobs N] [--prepare-only] [--skip-nvidia-test]
+# Run with: bash scripts/build.sh [--jobs N] [--prepare-only] [--skip-nvidia-test] [--allow-dirty]
 #           (on Ubuntu 26.04 arm64 with the packages in scripts/build-deps.txt installed,
 #            or anywhere with Docker: bash scripts/container-build.sh)
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib-build.sh"
 
 JOBS=$(nproc)
 PREPARE_ONLY=0
 NVIDIA_TEST=1
+ALLOW_DIRTY=0
 while [[ $# -gt 0 ]]; do
 	case $1 in
-	--jobs) JOBS=$2; shift 2 ;;
+	--jobs) need_arg $# "$1"; JOBS=$2; shift 2 ;;
 	--prepare-only) PREPARE_ONLY=1; shift ;;
 	--skip-nvidia-test) NVIDIA_TEST=0; shift ;;
+	--allow-dirty) ALLOW_DIRTY=1; shift ;;
 	*) die "unknown option $1" ;;
 	esac
 done
@@ -38,8 +43,13 @@ OUT=$REPO/out
 SRC=$BUILD/linux-$KERNEL_VERSION
 mkdir -p "$DL" "$OUT"
 
-# Reproducible metadata: the commit time of this checkout when there is one.
-SOURCE_DATE_EPOCH=$(git -C "$REPO" log -1 --format=%ct 2>/dev/null || date +%s)
+# Reproducible metadata from the commit: packages built from it are the same packages.
+COMMIT=$(source_commit) || die "build from a git checkout of n1x-kernel-ubuntu"
+if [[ $COMMIT == *-dirty ]]; then
+	[[ $ALLOW_DIRTY -eq 1 ]] || die "the checkout has changes or untracked files (git status); commit them, or build with --allow-dirty"
+	warn "building from a checkout with changes: the packages carry ${COMMIT%-dirty}'s version and time but not its content"
+fi
+SOURCE_DATE_EPOCH=$(git -C "$REPO" log -1 --format=%ct) || die "git log failed in $REPO"
 export SOURCE_DATE_EPOCH
 export KBUILD_BUILD_TIMESTAMP="@$SOURCE_DATE_EPOCH"
 export KBUILD_BUILD_USER=n1x-kernel-ubuntu KBUILD_BUILD_HOST=n1x-kernel-ubuntu
@@ -76,17 +86,17 @@ fi
 git -C "$OMARCHY" diff --quiet HEAD -- || die "omarchy-pkgs checkout has local changes"
 RECIPE=$OMARCHY/$OMARCHY_RECIPE
 
-# The kernel patches in the recipe's source order, as its prepare() applies them: every
-# *.patch source except the NVIDIA ones (nvidia-*), which belong to its NVIDIA modules.
-mapfile -t OMARCHY_PATCHES < <(cd "$RECIPE" && CARCH=aarch64 bash -c '
-	set -e
-	source ./PKGBUILD >/dev/null
-	for src in "${source[@]}"; do
-		src=${src%%::*}; src=${src##*/}; src=${src%.zst}
-		[[ $src == *.patch && $src != nvidia-* ]] && printf "%s\n" "$src"
-	done
-	true')
+# The kernel patches in the recipe's source order, as its prepare() applies them, and the
+# kernel tarball it applies them to, which must be the one ./sources pins.
+RECIPE_INFO=$(pkgbuild_info "$RECIPE") || die "cannot read $RECIPE/PKGBUILD"
+mapfile -t OMARCHY_PATCHES < <(sed -n 's/^patch //p' <<<"$RECIPE_INFO")
 [[ ${#OMARCHY_PATCHES[@]} -gt 0 ]] || die "no patches found in the Omarchy recipe"
+[[ $(sed -n 's/^pkgver //p' <<<"$RECIPE_INFO") == "$KERNEL_VERSION" ]] ||
+	die "the recipe builds $(sed -n 's/^pkgver //p' <<<"$RECIPE_INFO"), sources says KERNEL_VERSION=$KERNEL_VERSION"
+[[ -z $(sed -n 's/^rcpatch //p' <<<"$RECIPE_INFO") ]] ||
+	die "the recipe applies a release-candidate patch ($(sed -n 's/^rcpatch //p' <<<"$RECIPE_INFO")), which build.sh does not"
+[[ $(sed -n 's/^tarball //p' <<<"$RECIPE_INFO") == "${KERNEL_URL##*/} $KERNEL_SHA256" ]] ||
+	die "the recipe's kernel tarball ($(sed -n 's/^tarball //p' <<<"$RECIPE_INFO")) is not ${KERNEL_URL##*/} $KERNEL_SHA256 from sources"
 
 # --- Kernel tree ---------------------------------------------------------------------------
 msg "Extracting linux-$KERNEL_VERSION"
@@ -136,9 +146,10 @@ NVTEST=()
 bash "$REPO/scripts/nvidia-dkms.sh" --tarball "$DL/${NVIDIA_URL##*/}" --out "$BUILD" --jobs "$JOBS" "${NVTEST[@]}"
 
 # --- Output --------------------------------------------------------------------------------
-rm -f "$OUT"/*.deb "$OUT"/SHA256SUMS
+rm -f "$OUT"/*.deb "$OUT"/SHA256SUMS "$OUT"/SOURCE
 cp "$BUILD"/linux-image-"$RELEASE"_*.deb "$BUILD"/linux-headers-"$RELEASE"_*.deb \
 	"$BUILD"/nvidia-n1x-dkms-*.deb "$OUT"/
+printf 'https://github.com/bsneed/n1x-kernel-ubuntu commit %s\n' "$COMMIT" >"$OUT/SOURCE"
 (cd "$OUT" && sha256sum ./*.deb >SHA256SUMS)
 msg "Done: $OUT"
 cat "$OUT/SHA256SUMS"
