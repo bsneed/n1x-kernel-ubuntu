@@ -80,3 +80,11 @@ fetch() {
 	fi
 	verify_sha256 "$dest" "$sum"
 }
+
+# apply_patch TREE PATCH: apply PATCH (-p1) to TREE exactly as written: no fuzz, never a
+# question, and a patch that is already applied fails. GNU patch's --batch alone assumes such
+# a patch is reversed and reverts it with exit status 0, which would silently undo a fix that
+# upstream has merged.
+apply_patch() {
+	patch -d "$1" -p1 --forward --batch --fuzz=0 --quiet <"$2"
+}

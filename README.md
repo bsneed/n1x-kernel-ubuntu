@@ -50,8 +50,9 @@ Ubuntu user space.
 
 - **Omarchy kernel patches** (`OMARCHY_COMMIT` in `sources`, `pkgbuilds/linux-omarchy-aarch64`
   at pkgrel 75). These are all of the recipe's `*.patch` sources except the `nvidia-*` ones,
-  applied in its `source=()` order with `patch -Np1 --fuzz=0`, as its `prepare()` does. The
-  build reads the order from the pinned PKGBUILD itself. Omarchy's
+  applied in its `source=()` order with `patch -Np1 --fuzz=0`, as its `prepare()` does (plus
+  `--batch`, so a patch never stops for a question). The build reads the order from the pinned
+  PKGBUILD itself. Omarchy's
   [README](https://github.com/omacom/omarchy-pkgs/blob/master/pkgbuilds/linux-omarchy-aarch64/README.md)
   explains each patch. The N1x USB4 work is 1070–1089, 1105 and 1112; the ProArt P16 gets
   1012, 1106, 1107 and 1108.
@@ -61,7 +62,10 @@ Ubuntu user space.
   rebased onto 620.73.04. None of them are in 620. 0003, 0004, 0006 and 0008 apply as they
   are. 0005, 0007 and 0009 needed context-only changes, which a note in each patch describes.
   0010 is this repository's: it lets the N1x GPU go through system suspend on 620 (see
-  [Why NVIDIA 620](#why-nvidia-620)).
+  [Why NVIDIA 620](#why-nvidia-620)). They are applied with `--forward --fuzz=0`, so a patch
+  that a new NVIDIA release already contains fails the build instead of being reverted
+  (Omarchy's `prepare()` uses `--batch` alone, which assumes such a patch is reversed and
+  undoes it).
 - **`nvidia-dkms/patches/`**: Ubuntu's own buildfix for its 7.0 kernels, applied by DKMS for
   `7.0.0-*` kernels only, as Ubuntu's package does. It lets the same DKMS module build for the
   `linux-nvidia` fallback kernel.

@@ -96,14 +96,14 @@ tar -C "$BUILD" -xf "$DL/${KERNEL_URL##*/}"
 
 msg "Applying ${#OMARCHY_PATCHES[@]} Omarchy patches"
 for p in "${OMARCHY_PATCHES[@]}"; do
-	patch -d "$SRC" -Np1 --fuzz=0 --quiet <"$RECIPE/$p" || die "Omarchy patch $p failed"
+	apply_patch "$SRC" "$RECIPE/$p" || die "Omarchy patch $p failed"
 done
 shopt -s nullglob
 UBUNTU_PATCHES=("$REPO"/patches/ubuntu/*.patch)
 shopt -u nullglob
 msg "Applying ${#UBUNTU_PATCHES[@]} patches/ubuntu patches"
 for p in "${UBUNTU_PATCHES[@]}"; do
-	patch -d "$SRC" -Np1 --fuzz=0 --quiet <"$p" || die "patch ${p##*/} failed"
+	apply_patch "$SRC" "$p" || die "patch ${p##*/} failed"
 done
 
 # --- Config --------------------------------------------------------------------------------

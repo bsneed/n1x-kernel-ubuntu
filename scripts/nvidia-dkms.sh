@@ -41,7 +41,7 @@ mkdir -p "$WORK/root/usr/src" "$WORK/root/DEBIAN" "$WORK/root/usr/share/doc/$PKG
 tar -C "$WORK/root/usr/src" -xf "$TARBALL"
 mv "$WORK/root/usr/src/NVIDIA-kernel-module-source-$NVIDIA_VERSION" "$TREE"
 for p in "$REPO"/patches/nvidia/*.patch; do
-	patch -d "$TREE" -p1 --batch --fuzz=0 --quiet <"$p" || die "NVIDIA patch ${p##*/} failed"
+	apply_patch "$TREE" "$p" || die "NVIDIA patch ${p##*/} failed (already applied upstream, or no longer fits)"
 done
 
 # For reproducible builds, as Arch's and Omarchy's nvidia-open-dkms do.
