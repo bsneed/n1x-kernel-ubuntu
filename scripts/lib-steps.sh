@@ -84,7 +84,7 @@ grub_keep_fallback() {
 
 # grub_back_to PREV: GRUB boots PREV from the next boot on, with no one-time boot pending.
 grub_back_to() {
-	grub-editenv - unset next_entry
+	grub-editenv - unset next_entry || die "grub-editenv - unset next_entry failed (see above), so GRUB may not boot $1 by default; fix that and run --remove again"
 	grub_point set-default "$1"
 }
 
@@ -112,7 +112,7 @@ restore_packages() {
 	grub_back_to "$prev"
 	[[ ! -f $pin ]] || cp "$pin" "$PIN"
 	"${APT[@]}" "$@" ||
-		die "restoring the NVIDIA packages failed (see above); the apt pin stays, so 620 stays whole. Fix that and run --remove again"
+		die "restoring the NVIDIA packages failed (see above); GRUB now boots $prev by default (to keep $RELEASE instead, boot it and run sudo bash scripts/install.sh --default), and the apt pin stays, so 620 stays whole. Fix that and run --remove again"
 	rm -f "$PIN"
 }
 

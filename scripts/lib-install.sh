@@ -164,10 +164,11 @@ nvidia_restore_wants() {
 	done <"$1"
 }
 
-# dkms_all_kernels: builds our NVIDIA modules (nvidia-n1x NVIDIA_VERSION) for every kernel that
+# dkms_all_kernels PREV: builds our NVIDIA modules (nvidia-n1x NVIDIA_VERSION) for every kernel that
 # has headers. Ubuntu's DKMS hook builds only for the running and the newest kernel. A failed
 # build for a kernel that boots is fatal: the N1x has no other display engine, so that kernel
-# (the fallback among them) would come up without a GPU driver.
+# (the fallback among them) would come up without a GPU driver. PREV, GRUB's default unless
+# RELEASE was made the default with --default, is named in that error.
 dkms_all_kernels() {
 	local d k
 	local -a failed=() nohdr=()
@@ -189,5 +190,5 @@ dkms_all_kernels() {
 	[[ ${#nohdr[@]} -eq 0 ]] ||
 		warn "no NVIDIA modules for ${nohdr[*]}: no headers (sudo apt install linux-headers-<release>)"
 	[[ ${#failed[@]} -eq 0 ]] ||
-		die "NVIDIA $NVIDIA_VERSION modules failed to build for ${failed[*]}, which would boot without a GPU driver. See /var/lib/dkms/nvidia-n1x/$NVIDIA_VERSION/build/make.log. GRUB's default is still the kernel you ran before the install; sudo bash scripts/install.sh --remove goes back."
+		die "NVIDIA $NVIDIA_VERSION modules failed to build for ${failed[*]}, which would boot without a GPU driver. See /var/lib/dkms/nvidia-n1x/$NVIDIA_VERSION/build/make.log. GRUB's default is still $1 (or $RELEASE, if you chose it with --default); sudo bash scripts/install.sh --remove goes back."
 }

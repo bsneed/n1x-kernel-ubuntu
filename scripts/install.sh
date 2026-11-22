@@ -127,7 +127,7 @@ do_install() {
 	msg "Installing $RELEASE and NVIDIA $NVIDIA_VERSION${remove[*]:+, removing ${remove[*]}}"
 	# GRUB keeps $prev the default before any package changes, so every failure from here on boots it.
 	install_packages "$prev" "$TMP/pin" "${args[@]}"
-	dkms_all_kernels
+	dkms_all_kernels "$prev"
 	# The kernel loads the NVIDIA modules from the initramfs; DKMS 3 rebuilds none of them.
 	msg "Refreshing every initramfs"
 	update-initramfs -u -k all ||

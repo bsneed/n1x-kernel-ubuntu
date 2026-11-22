@@ -21,7 +21,7 @@ update-grub() { echo update-grub >>"$T/steps-log"; [[ ! -f $T/steps-update-grub-
 grub-editenv() { # grub-editenv - list | unset VAR
 	case $2 in
 	list) cat "$T/steps-env" ;;
-	unset) echo "grub-editenv unset $3" >>"$T/steps-log" ;;
+	unset) echo "grub-editenv unset $3" >>"$T/steps-log"; [[ ! -f $T/steps-editenv-fails ]] ;;
 	esac
 }
 # shellcheck disable=SC2317,SC2329 # called as "grub-$1" by grub_point (SC2317 before shellcheck 0.10)
@@ -70,6 +70,12 @@ eq "back to: the old kernel is saved_entry" "$(id_of 7.0.0-1026-nvidia)" "$(grub
 eq "back to: twice is the same" "0|grub-editenv unset next_entry|grub-set-default $(id_of 7.0.0-1026-nvidia)" \
 	"$(steps grub_back_to 7.0.0-1026-nvidia)"
 eq "back to: a kernel without an entry stops" "1|grub-editenv unset next_entry" "$(steps grub_back_to 7.0.0-1020-nvidia)"
+touch "$T/steps-editenv-fails"
+eq "back to: a failed grub-editenv stops before grub-set-default" "1|grub-editenv unset next_entry" "$(steps grub_back_to 7.0.0-1026-nvidia)"
+eq "back to: says grub-editenv failed and what may not boot" \
+	"ERROR: grub-editenv - unset next_entry failed (see above), so GRUB may not boot 7.0.0-1026-nvidia by default; fix that and run --remove again" \
+	"$(cat "$T/steps-err")"
+rm "$T/steps-editenv-fails"
 
 # --- the order of the package steps against GRUB (G3, G4) -----------------------------------------
 # apt-get logs what it was asked, and GRUB_DEFAULT, the saved_entry kernel and the pin it ran with.
@@ -119,6 +125,8 @@ eq "restore: a failed restore stops" \
 	"1|grub-editenv unset next_entry|grub-set-default $(id_of 7.0.0-1026-nvidia)|apt-get -y install nvidia-utils-615 [GRUB_DEFAULT=saved 7.0.0-1026-nvidia pin:new]" \
 	"$(steps restore_packages 7.0.0-1026-nvidia "$T/steps-new-pin" install nvidia-utils-615)"
 eq "restore: the pin stays after a failed restore" new "$(cat "$PIN")"
+eq "restore: says GRUB now boots the old kernel, and how to keep 7.3" 1 \
+	"$(grep -c '^ERROR: restoring the NVIDIA packages failed (see above); GRUB now boots 7.0.0-1026-nvidia by default (to keep 7.3.0-n1x1 instead, boot it and run sudo bash scripts/install.sh --default), and the apt pin stays' "$T/steps-err")"
 rm "$T/steps-apt-fails"
 echo old >"$PIN"
 eq "restore: no GRUB entry for the old kernel stops before the pin and apt" "1|grub-editenv unset next_entry" \

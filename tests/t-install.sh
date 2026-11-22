@@ -4,7 +4,7 @@
 # shellcheck shell=bash
 . scripts/lib-nvidia.sh
 . scripts/lib-install.sh
-NVIDIA_VERSION=620.73.04
+NVIDIA_VERSION=620.73.04 RELEASE=7.3.0-n1x1
 
 # --- DKMS builds for every kernel (a failure for a bootable kernel is fatal) -------------------
 MODULES_ROOT=$T/modules BOOT_ROOT=$T/boot
@@ -28,32 +28,33 @@ dkms() {
 }
 eq "bootable kernels" "7.0.0-1026-nvidia 7.0.0-44-generic 7.3.0-n1x1" "$(kernels_bootable | sort | paste -sd' ')"
 : >"$T/dkms-built"
-eq "builds for every kernel with headers" 0 "$( (dkms_all_kernels) >/dev/null 2>&1; echo $?)"
+eq "builds for every kernel with headers" 0 "$( (dkms_all_kernels 7.0.0-1026-nvidia) >/dev/null 2>&1; echo $?)"
 eq "built every kernel with headers" "7.0.0-1026-nvidia 7.0.0-30-generic 7.0.0-44-generic 7.3.0-n1x1" \
 	"$(sort "$T/dkms-built" | paste -sd' ')"
 printf '7.0.0-1026-nvidia\n7.0.0-44-generic\n7.0.0-30-generic\n7.3.0-n1x1\n' >"$T/dkms-installed"
 : >"$T/dkms-built"
-dkms_all_kernels >/dev/null 2>&1
+dkms_all_kernels 7.0.0-1026-nvidia >/dev/null 2>&1
 eq "skips kernels that have the modules" "" "$(cat "$T/dkms-built")"
 # The stock fallback kernel (the GRUB default after install) failing to build must stop the install.
 printf '7.3.0-n1x1\n' >"$T/dkms-installed"
 printf '7.0.0-1026-nvidia\n' >"$T/dkms-broken"
-eq "a failed build for the fallback kernel is fatal" 1 "$( (dkms_all_kernels) >/dev/null 2>&1; echo $?)"
-eq "the error names the kernel" 1 "$(dkms_all_kernels 2>&1 | grep -c '^ERROR: NVIDIA 620.73.04 modules failed to build for 7.0.0-1026-nvidia,')"
+eq "a failed build for the fallback kernel is fatal" 1 "$( (dkms_all_kernels 7.0.0-1026-nvidia) >/dev/null 2>&1; echo $?)"
+eq "the error names the kernel" 1 "$(dkms_all_kernels 7.0.0-1026-nvidia 2>&1 | grep -c '^ERROR: NVIDIA 620.73.04 modules failed to build for 7.0.0-1026-nvidia,')"
+eq "the error says what GRUB boots" 1 "$(dkms_all_kernels 7.0.0-1026-nvidia 2>&1 | grep -c "GRUB's default is still 7.0.0-1026-nvidia (or 7.3.0-n1x1, if you chose it with --default); sudo bash scripts/install.sh --remove goes back.$")"
 eq "it still builds the other kernels" "7.0.0-1026-nvidia 7.0.0-30-generic 7.0.0-44-generic" \
-	"$( (dkms_all_kernels) >/dev/null 2>&1; sort -u "$T/dkms-built" | paste -sd' ')"
+	"$( (dkms_all_kernels 7.0.0-1026-nvidia) >/dev/null 2>&1; sort -u "$T/dkms-built" | paste -sd' ')"
 printf '7.3.0-n1x1\n7.0.0-1026-nvidia\n7.0.0-44-generic\n' >"$T/dkms-installed"
 printf '7.3.0-n1x1\n' >"$T/dkms-broken"
 : >"$T/dkms-installed"
-eq "a failed build for the new kernel is fatal" 1 "$( (dkms_all_kernels) >/dev/null 2>&1; echo $?)"
+eq "a failed build for the new kernel is fatal" 1 "$( (dkms_all_kernels 7.0.0-1026-nvidia) >/dev/null 2>&1; echo $?)"
 printf '7.3.0-n1x1\n7.0.0-1026-nvidia\n7.0.0-44-generic\n' >"$T/dkms-installed"
 printf '7.0.0-30-generic\n' >"$T/dkms-broken"
 eq "a failed build for headers without a kernel only warns" "0 1" \
-	"$( (dkms_all_kernels) 2>"$T/err" >/dev/null; echo "$? $(grep -c 'no kernel image' "$T/err")")"
+	"$( (dkms_all_kernels 7.0.0-1026-nvidia) 2>"$T/err" >/dev/null; echo "$? $(grep -c 'no kernel image' "$T/err")")"
 mkdir -p "$MODULES_ROOT/7.0.0-20-nvidia"
 touch "$BOOT_ROOT/vmlinuz-7.0.0-20-nvidia"
 eq "a bootable kernel without headers is reported" "0 1" \
-	"$( (dkms_all_kernels) 2>"$T/err" >/dev/null; echo "$? $(grep -c 'no NVIDIA modules for 7.0.0-20-nvidia: no headers' "$T/err")")"
+	"$( (dkms_all_kernels 7.0.0-1026-nvidia) 2>"$T/err" >/dev/null; echo "$? $(grep -c 'no NVIDIA modules for 7.0.0-20-nvidia: no headers' "$T/err")")"
 unset -f dkms
 
 # --- our kernel packages ----------------------------------------------------------------------
