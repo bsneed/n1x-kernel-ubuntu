@@ -1,7 +1,9 @@
 # Resolutions: initial review (2026-11-21)
 
 How each finding of [2026-11-21-initial.md](2026-11-21-initial.md) was resolved on branch
-`bsneed/review-fixes`. Tests are in `tests/t-*.sh` (`bash tests/run.sh`).
+`bsneed/review-fixes`. Tests are in `tests/t-*.sh` (`bash tests/run.sh`). The findings of the
+exit-gate review that followed (G1–G7) are resolved in
+[2026-11-21-exit-gate-resolutions.md](2026-11-21-exit-gate-resolutions.md).
 
 | ID | Severity | Resolution | Commit |
 |---|---|---|---|

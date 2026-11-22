@@ -86,12 +86,21 @@ limitation into the README.
   `bsneed/review-fixes`). If it can't finish within
   Actions' limits, drop or rework it and update the README's CI paragraph.
 - [x] Work through the code-review findings (2026-11-21, branch `bsneed/review-fixes`; every
-  finding's resolution is in `docs/reviews/2026-11-21-initial-resolutions.md`).
+  finding's resolution is in `docs/reviews/2026-11-21-initial-resolutions.md`, and those of the
+  exit-gate review in `docs/reviews/2026-11-21-exit-gate-resolutions.md`).
 - [ ] A plain `dpkg -i` / `apt install` of `nvidia-n1x-dkms-620-open` builds the modules only for
   the running and the newest kernel (DKMS's `common.postinst`); `install.sh` builds the rest.
   Decide whether the postinst should build for every kernel with headers itself.
 - [ ] `install.sh` doesn't check the free space in `/boot` before installing the kernel (an
   initramfs per kernel); Ubuntu's own kernel packages don't either.
+- [ ] `--remove` removes `nvidia-n1x-dkms-620-open` (`name-`) but docs/install.md says it purges
+  it: the container rehearsal of the exit-gate fixes left it in dpkg's `rc` state (no conffiles,
+  only the postrm). Purge it (`name_` in the restore transaction) or change the wording.
+- [ ] `--remove` puts Ubuntu's `nvidia-dkms-620-open` back while 7.3 is still installed, so DKMS
+  builds Ubuntu's modules for 7.3 too; purging 7.3 afterwards leaves `/lib/modules/7.3.0-n1x1`
+  with them and a `dkms status` entry (seen in the exit-gate container rehearsal; `dkms
+  kernel_prerm` removed nothing). Check on hardware, and consider purging the kernel packages
+  before the NVIDIA restore, or `dkms remove` for the purged release.
 
 ## rtx24 housekeeping
 
