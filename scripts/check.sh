@@ -3,12 +3,14 @@
 # n1x-kernel-ubuntu - health check of the N1x kernel, USB4 and NVIDIA. Read-only, runs as your user.
 #
 # Why: one place to see that the running kernel is ours, the USB4 host routers are bound,
-# a dock is enumerated and authorized, and the NVIDIA modules match the user space.
+# a dock is enumerated and authorized, the NVIDIA modules match the user space, and the apt
+# pin scripts/install.sh wrote holds it.
 # Prints one line per item: OK, WARN or FAIL (as proart-p16-linux's tools/check.sh does).
 # Remove: nothing to remove; it only reads.
 # Run with: bash scripts/check.sh
 set -uo pipefail
 . "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/grub.sh"
 load_sources
 RELEASE=$(kernel_release "$KERNEL_VERSION" "$N1X_REVISION")
 
@@ -21,12 +23,16 @@ check() { if eval "$2" >/dev/null 2>&1; then OK "$1"; else ${3:-FAIL} "$1"; fi; 
 echo "== Kernel"
 k=$(uname -r)
 if [[ $k == "$RELEASE" ]]; then OK "running $k"; else FAIL "running $k, not $RELEASE"; fi
-for p in hpbussize=0x80 hpmmiosize=32M hpmmioprefsize=32G; do
+for p in "${N1X_PCI_OPTS[@]}"; do
 	check "kernel parameter pci=...$p" "grep -Eq '(^| )pci=([^ ]*,)?$p(,| |\$)' /proc/cmdline"
 done
 check "suspend-to-idle is the default sleep (Omarchy 1113)" 'grep -q "\[s2idle\]" /sys/power/mem_sleep'
-check "power_wrap keeps the USB4 resources (Omarchy 1112)" \
-	'! journalctl -k -b --no-pager -o cat | grep -q "SSPM released usb4 resources"'
+if [[ -n $(journalctl -k -b -n1 --no-pager -q 2>/dev/null) ]]; then
+	check "power_wrap keeps the USB4 resources (Omarchy 1112)" \
+		'! journalctl -k -b --no-pager -o cat | grep -q "SSPM released usb4 resources"'
+else
+	WARN "cannot read the kernel journal, so power_wrap is unchecked (sudo, or join the adm group)"
+fi
 
 echo "== USB4 / Thunderbolt"
 check "thunderbolt_platform driver loaded (CONFIG_USB4_PLATFORM_NHI)" 'test -d /sys/module/thunderbolt_platform'
@@ -57,24 +63,43 @@ command -v boltctl >/dev/null && check "boltd answers (boltctl list)" 'boltctl l
 
 echo "== NVIDIA"
 want=$NVIDIA_VERSION
-have=$(cat /sys/module/nvidia/version 2>/dev/null)
-if [[ $have == "$want" ]]; then OK "nvidia module $have loaded"
-else FAIL "nvidia module '${have:-not loaded}', want $want"; fi
+nvver=$(cat /sys/module/nvidia/version 2>/dev/null)
+if [[ $nvver == "$want" ]]; then OK "nvidia module $nvver loaded"
+else FAIL "nvidia module '${nvver:-not loaded}', want $want"; fi
 check "nvidia module from DKMS nvidia-n1x/$want" "modinfo -n nvidia | grep -q /updates/dkms/ && dkms status -m nvidia-n1x -v $want -k $k | grep -q installed"
 # The kernel loads nvidia*.ko from the initramfs (nvidia-kernel-common's framebuffer-nvidia
 # hook), so a module rebuilt after the initramfs, or after this boot, is not the one running.
 ko=$(modinfo -n nvidia 2>/dev/null)
-if [[ -f $ko ]]; then
-	boot=$(awk '/^btime/{print $2}' /proc/stat)
-	if [[ $(stat -c %Y "$ko") -gt $boot ]]; then WARN "nvidia module rebuilt after this boot: reboot to load it"
-	elif [[ $(stat -c %Y "/boot/initrd.img-$k" 2>/dev/null || echo 0) -lt $(stat -c %Y "$ko") ]]; then
-		FAIL "initramfs older than the nvidia module (sudo update-initramfs -u -k $k)"
-	else OK "running nvidia module is the installed one (initramfs up to date)"; fi
+loaded=$(cat /sys/module/nvidia/srcversion 2>/dev/null)
+if [[ -f $ko && -n $loaded ]]; then
+	if [[ $loaded == "$(modinfo -F srcversion nvidia 2>/dev/null)" ]]; then
+		OK "running nvidia module is the installed one (srcversion $loaded)"
+	elif [[ $(stat -c %Y "$ko") -gt $(awk '/^btime/{print $2}' /proc/stat) ]]; then
+		WARN "nvidia module rebuilt after this boot: reboot to load it"
+	else
+		FAIL "running nvidia module is not the installed one: the initramfs holds another (sudo update-initramfs -u -k $k, reboot)"
+	fi
 fi
-check "user space $NVIDIA_UBUNTU_VERSION (nvidia-utils-${want%%.*})" \
-	"dpkg-query -W -f '\${Version}' nvidia-utils-${want%%.*} | grep -qx '$NVIDIA_UBUNTU_VERSION'"
+B=${want%%.*}
+uver=$(dpkg-query -W -f '${Version}' "nvidia-utils-$B" 2>/dev/null)
+note=""
+[[ $uver == "$NVIDIA_UBUNTU_VERSION" ]] || note=", validated with $NVIDIA_UBUNTU_VERSION"
+if [[ $uver == "$want"-* ]]; then
+	OK "user space $uver (nvidia-utils-$B)$note"
+else
+	FAIL "user space '${uver:-not installed}' (nvidia-utils-$B), want $want-*"
+fi
 check "nvidia-smi ($(nvidia-smi --query-gpu=name,driver_version,pstate --format=csv,noheader 2>/dev/null))" 'nvidia-smi -L'
-check "apt pin keeps NVIDIA at $NVIDIA_UBUNTU_VERSION" 'test -f /etc/apt/preferences.d/n1x-kernel-ubuntu-nvidia'
+cand=$(apt-cache policy "nvidia-utils-$B" 2>/dev/null | sed -n 's/^ *Candidate: //p')
+if [[ ! -f /etc/apt/preferences.d/n1x-kernel-ubuntu-nvidia ]]; then
+	FAIL "no apt pin (/etc/apt/preferences.d/n1x-kernel-ubuntu-nvidia): apt may move NVIDIA off $want"
+elif [[ $cand != "$want"-* ]]; then
+	FAIL "apt pin does not hold NVIDIA at $want: apt would install nvidia-utils-$B ${cand:-(none)}"
+elif [[ $cand != "$uver" ]]; then
+	WARN "apt pin holds NVIDIA at $want; an Ubuntu update of it is waiting: $cand (sudo apt upgrade)"
+else
+	OK "apt pin holds NVIDIA at $want (apt's candidate is the installed $cand)"
+fi
 nodkms=$(for b in /lib/modules/*/build; do
 	kk=${b%/build} kk=${kk##*/}
 	dkms status -m nvidia-n1x -v "$want" -k "$kk" 2>/dev/null | grep -q installed || echo "$kk"
