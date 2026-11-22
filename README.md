@@ -186,7 +186,8 @@ Billboard devices.
 
 - In s2idle only the internal keyboard and the power button wake the P16. None of these do:
   RTC alarms (rtc0; rtc1 returns EIO), Wake-on-LAN through the dock, USB devices on the dock,
-  and Wi-Fi WoWLAN. The likely cause is BIOS 300's missing `_PRW` on the PCIe ports
+  and Wi-Fi WoWLAN. The likely cause is BIOS 300's ACPI tables: the PCIe root ports (`RP0`)
+  have `_S0W` 0x04 but no `_PRW`, so nothing behind them can signal a wake
   (seankd3/asus-proart-p16-rtx-spark-linux#10).
 - NVIDIA 620's user space is in `resolute-proposed` only (Nov 2026). The apt pin holds it at
   the module version.
