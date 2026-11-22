@@ -116,3 +116,37 @@ DKMS package is gone.
 
 G2 was not rehearsed: it needs a second linux-nvidia ABI and an autoremove. The tests with a
 fake `MODULES_ROOT`/`BOOT_ROOT` cover it.
+
+## Exit-gate re-review
+
+How each finding of the [re-review](2026-11-21-exit-gate-rereview.md) (H1–H6) was resolved, after
+`03b3903`. Tests: 315 before this round, 351 after, all passing with 0 skipped in ubuntu:26.04
+(bash 5.3, shellcheck 0.11.0) and ubuntu:24.04 (bash 5.2, shellcheck 0.9.0, CI's lint), where
+shellcheck is clean. Each regression test below was run and seen to fail on the code before its fix.
+
+| ID | Severity | Resolution | Commit |
+|---|---|---|---|
+| H1 | Blocker | Fixed. `nvidia_restore_wants BEFORE PREV` asks for the same `linux-modules/objects-nvidia-NNN[-server]-open-` package for PREV, the kernel `--remove` goes back to, in place of a removed kernel's. It prints each name once and keeps -64k. The metapackage is no longer relied on. New t-install.sh tests use a proart-p16-linux-shaped `nvidia-before` (the per-ABI package, no metapackage): on the old code, 5 tests failed, and the fallback kernel got no 615 modules. If the archive has no such package, the restore simulation refuses. This was checked with real apt in ubuntu:26.04: `apt_simulate` on `linux-modules-nvidia-615-open-7.0.0-9999-nvidia` stops with `E: Unable to locate package ...` / `ERROR: apt cannot do this (see above): nothing was changed`, exit 1. The real `...-7.0.0-1026-nvidia` (resolute-proposed, priority 1) simulates fine. docs/install.md now says what happens. | 14c3ab8 |
+| H2 | Should-fix | Fixed. The end of `--remove` moves into `remove_kernels` (lib-steps.sh), which purges first, then puts `GRUB_DEFAULT` back, then runs update-grub and `grub_back_to`. The kernel command line still goes back before the purge. A `GRUB_DEFAULT` that can't be read from `grub.before` now stops with a message instead of a silent `set -e` exit. t-steps.sh checks that the purge runs with `GRUB_DEFAULT=saved` and that a failed purge leaves it so. With the old order, 3 tests failed. docs/install.md is updated. | 3b68228 |
+| H3 | Should-fix | Fixed. The G3 and G4 sequences move unchanged from install.sh into `install_packages` and `restore_packages` (lib-steps.sh). t-steps.sh drives both with an apt-get stand-in that logs the `GRUB_DEFAULT`, saved_entry and pin it ran with. Mutation probes: deleting `grub_keep_fallback` fails 7 tests, deleting `grub_back_to` fails 3, and moving either after apt fails 4 or 3. Deleting the pin copy fails 3. This corrects the G4 row's coverage claim above: the ordering was untested until now. Done before H2 and H4, so that their fixes had a test to fail first. | 1c304bc |
+| H4 | Nit | Fixed. `restore_packages` runs `grub_back_to` before copying the rewritten pin into /etc. A test checks that the pin in /etc is unchanged when `grub_back_to` fails. It failed before the swap. | d5e015b |
+| H5 | Nit | Fixed, all three. `dkms_all_kernels PREV` names the kernel GRUB boots, "(or 7.3.0-n1x1, if you chose it with --default)". The restore failure says GRUB now boots PREV, and how to keep 7.3 (`--default` after booting it). `grub-editenv - unset next_entry` dies with a message. Each message has a test, and mutants that drop them fail. | 46078d6 |
+| H6 | Nit | Fixed. Step 6's package changes were step 5's restore. The steps are rewritten, with a note that the order comes from the code (the run's logs weren't kept). | 51d2b62 |
+
+None was rejected.
+
+Also in this round:
+
+- The re-review's out-of-scope note: TODO.md and the `dkms_all_kernels` comment said DKMS builds
+  only for the running and the newest kernel. 26.04's dkms 3.2.2-1ubuntu1 ships
+  `autoinstall_all_kernels="yes"` (checked in the container), so both are corrected.
+- Parked TODO (a): docs/install.md now says `--remove` *removes* our DKMS package and the 620
+  user space. The behaviour is unchanged (`name-`). A purge of the 620 user space in the same
+  transaction as 615's install could touch conffiles that 615 now owns, and this round has no
+  rehearsal to check that. The TODO stays, as optional. (3445fa2)
+- Parked TODO (b): not done. Purging the kernel before the NVIDIA restore would change the
+  failure states that G4 and H2 rely on, and it needs its own rehearsal.
+
+Still not covered by unit tests: the `update-initramfs` messages in install.sh's orchestration
+(G6), which the container rehearsal above triggered. This round ran no new end-to-end
+rehearsal: H1–H5 are covered by the tests above and by the real-apt simulation for H1.
