@@ -159,9 +159,16 @@ sudo bash scripts/install.sh --default   # after a good boot: make it GRUB's def
 4. Adds `pci=hpbussize=0x80,hpmmiosize=32M,hpmmioprefsize=32G` to
    `GRUB_CMDLINE_LINUX_DEFAULT`. Docks need this PCI hotplug padding behind the USB4 tunnel
    root ports; the values are Omarchy's for the ProArt P14/P16. Running it again changes
-   nothing. An existing `pci=` keeps its other options.
+   nothing. An existing `pci=` keeps its other options. It stops before changing anything if
+   `/etc/default/grub` sets the variable in a form it can't edit (indented, `export`), or if a
+   file in `/etc/default/grub.d/` replaces it; after `update-grub` it checks that `grub.cfg`
+   boots the new kernel with these options.
 5. Keeps the running kernel as GRUB's default and boots the new one once (`grub-reboot`). A
-   hang or SoC reset on that boot falls back to the old kernel on the next one.
+   hang or SoC reset on that boot falls back to the old kernel on the next one. That needs
+   `GRUB_DEFAULT=saved` (proart-p16-linux sets it; stock Ubuntu has `0`, which boots the
+   newest kernel whatever `grub-set-default` says), so `install.sh` sets it and `--remove`
+   puts the old value back. After `--default`, running `install.sh` again keeps the new kernel
+   as the default.
 
 It records what it replaced in `/var/lib/n1x-kernel-ubuntu`.
 
@@ -218,7 +225,9 @@ This reinstalls the NVIDIA packages that were there before (exact versions, e.g.
 and its prebuilt modules for `linux-nvidia`), purges `nvidia-n1x-dkms-620-open`, the 620 user
 space and every `linux-image/headers-*-n1x*` package, removes the apt pin and our `pci=`
 options, and points GRUB's default back at the kernel that was running at install time
-(Ubuntu's `linux-nvidia`).
+(Ubuntu's `linux-nvidia`). The kernel command line and `GRUB_DEFAULT` go back to what they
+were before the first install (a `pci=` value of yours that the install replaced comes back;
+an option you had already stays); a later edit of your own to either is kept.
 
 ## Updates
 

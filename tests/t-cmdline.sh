@@ -34,3 +34,16 @@ eq "remove round trip" "quiet splash console=tty0 $OSI" \
 	"$(cmdline_remove_pci "$(cmdline_add_pci "quiet splash console=tty0 $OSI")")"
 eq "remove round trip with realloc" "pci=realloc q" "$(cmdline_remove_pci "$(cmdline_add_pci "pci=realloc q")")"
 eq "remove from empty" "" "$(cmdline_remove_pci "")"
+
+# --- cmdline: remove with the command line from before the install (the user's own pci=) ------
+for before in "quiet splash" "pci=hpmmioprefsize=64G quiet" "quiet pci=hpbussize=0x80" \
+	"pci=realloc,hpmmiosize=16M $OSI" "" "a pci=noaer b pci=hpbussize=0x20"; do
+	eq "remove restores [$before]" "$before" "$(cmdline_remove_pci "$(cmdline_add_pci "$before")" "$before")"
+done
+eq "remove after a later edit restores the user's value" "pci=hpmmioprefsize=64G quiet nosmt" \
+	"$(cmdline_remove_pci "$(cmdline_add_pci "pci=hpmmioprefsize=64G quiet") nosmt" "pci=hpmmioprefsize=64G quiet")"
+eq "remove after a later edit keeps an option the user had" "quiet pci=hpbussize=0x80 nosmt" \
+	"$(cmdline_remove_pci "$(cmdline_add_pci "quiet pci=hpbussize=0x80") nosmt" "quiet pci=hpbussize=0x80")"
+eq "remove after a later edit drops what we added" "quiet nosmt" \
+	"$(cmdline_remove_pci "$(cmdline_add_pci quiet) nosmt" quiet)"
+eq "remove with an empty before" "nosmt" "$(cmdline_remove_pci "$P nosmt" "")"

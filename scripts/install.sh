@@ -11,10 +11,11 @@
 #     keeps the user space at exactly that version, so `apt upgrade` can't split it from the
 #     modules (/etc/apt/preferences.d/n1x-kernel-ubuntu-nvidia);
 #  3. the USB4 PCI hotplug padding (pci=hpbussize=...) in GRUB_CMDLINE_LINUX_DEFAULT.
-# GRUB's default stays the kernel you run now; the new kernel boots once on the next reboot.
-# After a good boot, --default makes it the default.
-# Remove: sudo bash scripts/install.sh --remove   (back to the NVIDIA packages and GRUB
-#         default from before the install, kernel packages purged, cmdline restored)
+# GRUB's default stays the kernel you run now; the new kernel boots once on the next reboot
+# (GRUB_DEFAULT=saved, which this sets if needed). After a good boot, --default makes it the
+# default, and a later run keeps it.
+# Remove: sudo bash scripts/install.sh --remove   (back to the NVIDIA packages, GRUB_DEFAULT,
+#         GRUB default and kernel command line from before the install, kernel packages purged)
 # Run with: sudo bash scripts/install.sh [--debs DIR] | --default | --remove
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
@@ -37,7 +38,7 @@ STATE=/var/lib/n1x-kernel-ubuntu
 PIN=/etc/apt/preferences.d/n1x-kernel-ubuntu-nvidia
 PROPOSED_SRC=/etc/apt/sources.list.d/n1x-kernel-ubuntu-proposed.sources
 PROPOSED_PIN=/etc/apt/preferences.d/n1x-kernel-ubuntu-proposed
-GRUB_FILE=/etc/default/grub GRUB_CFG=/boot/grub/grub.cfg
+GRUB_FILE=/etc/default/grub GRUB_DROPINS=/etc/default/grub.d GRUB_CFG=/boot/grub/grub.cfg
 export DEBIAN_FRONTEND=noninteractive
 APT=(apt-get -y -q -o Dpkg::Options::=--force-confold)
 # NVIDIA user space, as proart-p16-linux's install/02-nvidia.sh installs it for 615.
@@ -75,6 +76,31 @@ grub_point() { # grub_point set-default|reboot KERNELRELEASE
 	msg "grub-$1 $id"
 }
 
+# Before anything changes: /etc/default/grub must be editable as install.sh edits it, and no
+# /etc/default/grub.d/*.cfg may override what it sets there.
+grub_preflight() {
+	local v over
+	grub_default_get "$GRUB_FILE" >/dev/null || die "cannot edit GRUB_CMDLINE_LINUX_DEFAULT in $GRUB_FILE (see above)"
+	grub_var_get "$GRUB_FILE" GRUB_DEFAULT >/dev/null || die "cannot edit GRUB_DEFAULT in $GRUB_FILE (see above)"
+	for v in GRUB_CMDLINE_LINUX_DEFAULT GRUB_DEFAULT; do
+		over=$(grub_dropin_overrides "$GRUB_DROPINS" "$v")
+		[[ -z $over ]] || die "$GRUB_DROPINS sets $v after $GRUB_FILE, so editing $GRUB_FILE would not reach grub.cfg: $over"
+	done
+}
+
+# After update-grub: grub.cfg must boot RELEASE with the USB4 options and honour saved_entry.
+grub_verify() {
+	local args
+	args=$(grub_linux_args "$GRUB_CFG" "$RELEASE") || die "no GRUB entry for $RELEASE in $GRUB_CFG"
+	cmdline_has_pci "$args" || die "$GRUB_CFG boots $RELEASE without ${N1X_PCI_OPTS[*]}: $args"
+	# shellcheck disable=SC2016 # literal grub.cfg text
+	grep -qF 'set default="${saved_entry}"' "$GRUB_CFG" ||
+		die "$GRUB_CFG does not boot saved_entry (GRUB_DEFAULT=saved has no effect)"
+}
+
+# saved_entry in grubenv: GRUB's default when GRUB_DEFAULT=saved.
+grub_saved_entry() { grub-editenv - list 2>/dev/null | sed -n 's/^saved_entry=//p'; }
+
 dkms_all_kernels() { # build our NVIDIA modules for every kernel that has headers
 	local d k
 	for d in /lib/modules/*/build; do
@@ -93,6 +119,7 @@ dkms_all_kernels() { # build our NVIDIA modules for every kernel that has header
 
 do_install() {
 	[[ $(dpkg --print-architecture) == arm64 ]] || die "arm64 only"
+	grub_preflight
 	# shellcheck source=/dev/null
 	[[ $(. /etc/os-release && echo "$VERSION_ID") == 26.04 ]] || die "Ubuntu 26.04 only"
 	grep -qx H7607BA /sys/class/dmi/id/product_name 2>/dev/null ||
@@ -145,18 +172,34 @@ do_install() {
 	msg "Kernel command line: USB4 PCI hotplug padding"
 	grub_default_set "$GRUB_FILE" "$(cmdline_add_pci "$(grub_default_get "$GRUB_FILE")")"
 	grep '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_FILE"
+	# grub-set-default and grub-reboot only work with GRUB_DEFAULT=saved (--remove restores it).
+	local was
+	was=$(grub_use_saved "$GRUB_FILE")
+	[[ -z $was ]] || msg "GRUB_DEFAULT=saved (was: $was), so the fallback boot below works"
 	update-grub
-	# GRUB_DEFAULT=saved: keep the old kernel the default, try the new one once.
-	grub_point set-default "$(cat "$STATE/previous-kernel")"
+	grub_verify
+	local prev
+	prev=$(cat "$STATE/previous-kernel")
+	echo
+	if [[ $(grub_saved_entry) == "$(grub_entry_id "$GRUB_CFG" "$RELEASE")" ]]; then
+		# Made the default with --default before; a re-run keeps that choice.
+		msg "GRUB's default stays $RELEASE (chosen with --default)"
+		echo "Done. $RELEASE stays GRUB's default. Reboot if the kernel or NVIDIA modules changed."
+		return
+	fi
+	# Keep the old kernel the default, try the new one once.
+	grub_point set-default "$prev"
 	grub_point reboot "$RELEASE"
 	echo
 	echo "Done. Reboot: the next boot (only) runs $RELEASE; a hang or reset falls back to"
-	echo "$(cat "$STATE/previous-kernel") on the boot after. Check it with bash scripts/check.sh, then"
+	echo "$prev on the boot after. Check it with bash scripts/check.sh, then"
 	echo "make it the default with: sudo bash scripts/install.sh --default"
 }
 
 do_default() {
 	[[ $(uname -r) == "$RELEASE" ]] || die "boot $RELEASE first (sudo bash scripts/install.sh, reboot)"
+	[[ $(grub_var_get "$GRUB_FILE" GRUB_DEFAULT) == saved ]] ||
+		die "GRUB_DEFAULT in $GRUB_FILE is not saved, so GRUB would ignore this (run sudo bash scripts/install.sh)"
 	grub_point set-default "$RELEASE"
 }
 
@@ -180,8 +223,16 @@ do_remove() {
 	"${APT[@]}" install --allow-downgrades "${want[@]}" "${remove[@]}"
 
 	msg "Kernel command line and GRUB default"
-	grub_default_set "$GRUB_FILE" "$(cmdline_remove_pci "$(grub_default_get "$GRUB_FILE")")"
-	grep '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_FILE"
+	local cmdline
+	cmdline=$(grub_default_get "$GRUB_FILE") || die "cannot edit GRUB_CMDLINE_LINUX_DEFAULT in $GRUB_FILE"
+	if [[ -f $STATE/grub.before ]]; then
+		# The user's own pci= values come back; see cmdline_remove_pci.
+		grub_default_set "$GRUB_FILE" "$(cmdline_remove_pci "$cmdline" "$(grub_default_get "$STATE/grub.before")")"
+		grub_restore_default "$GRUB_FILE" "$STATE/grub.before"
+	else
+		grub_default_set "$GRUB_FILE" "$(cmdline_remove_pci "$cmdline")"
+	fi
+	grep -E '^(GRUB_DEFAULT|GRUB_CMDLINE_LINUX_DEFAULT)=' "$GRUB_FILE"
 	local -a kpkgs
 	mapfile -t kpkgs < <(dpkg-query -W -f '${db:Status-Abbrev}${Package}\n' | sed -n 's/^[ir][iHUFWt] *//p' |
 		grep -E '^linux-(image|headers)-[0-9]+\.[0-9]+\.[0-9]+-n1x[0-9]+$' || true)
