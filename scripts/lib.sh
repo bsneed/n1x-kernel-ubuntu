@@ -93,3 +93,17 @@ fetch() {
 apply_patch() {
 	patch -d "$1" -p1 --forward --batch --fuzz=0 --quiet <"$2"
 }
+
+# apply_patch_dir TREE DIR: apply_patch every DIR/*.patch to TREE in name order, printing
+# "applied NAME" for each. A DIR without patches is fine. Fails at the first patch that does
+# not apply, naming it on stderr, and on a missing DIR.
+apply_patch_dir() {
+	local p
+	[[ -d $2 ]] || { printf 'no patch directory %s\n' "$2" >&2; return 1; }
+	for p in "$2"/*.patch; do
+		[[ -f $p ]] || continue
+		apply_patch "$1" "$p" ||
+			{ printf '%s does not apply (already applied upstream, or no longer fits)\n' "${p##*/}" >&2; return 1; }
+		printf 'applied %s\n' "${p##*/}"
+	done
+}
