@@ -11,6 +11,11 @@ die() {
 	exit 1
 }
 
+# need_arg $# OPTION: for option parsing, fail unless OPTION has a value after it.
+need_arg() {
+	[[ $1 -ge 2 ]] || die "$2 needs a value"
+}
+
 require_root() {
 	[[ $EUID -eq 0 ]] || die "run as root (sudo bash $0)"
 }

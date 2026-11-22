@@ -7,10 +7,13 @@
 #  1. linux-image/linux-headers <release> (Omarchy's N1x kernel), next to Ubuntu's kernels;
 #  2. NVIDIA $NVIDIA_VERSION: Ubuntu's user space (the same packages as proart-p16-linux's
 #     install/02-nvidia.sh, from <codename>-proposed while it is only there) and our DKMS
-#     modules with Omarchy's N1x display fixes, built for every kernel with headers. An apt pin
-#     keeps the user space at exactly that version, so `apt upgrade` can't split it from the
+#     modules with Omarchy's N1x display fixes, built for every kernel with headers. It
+#     replaces the packages of other NVIDIA driver versions (615) and nothing else. An apt pin
+#     keeps the user space at that upstream version, so `apt upgrade` can't split it from the
 #     modules (/etc/apt/preferences.d/n1x-kernel-ubuntu-nvidia);
 #  3. the USB4 PCI hotplug padding (pci=hpbussize=...) in GRUB_CMDLINE_LINUX_DEFAULT.
+# Every apt transaction is simulated first; the install stops before changing anything if apt
+# can't do it or would remove something else.
 # GRUB's default stays the kernel you run now; the new kernel boots once on the next reboot
 # (GRUB_DEFAULT=saved, which this sets if needed). After a good boot, --default makes it the
 # default, and a later run keeps it.
@@ -20,11 +23,14 @@
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 . "$(dirname "$0")/grub.sh"
+. "$(dirname "$0")/lib-nvidia.sh"
+. "$(dirname "$0")/lib-install.sh"
+. "$(dirname "$0")/lib-steps.sh"
 
 DEBS=$REPO/out MODE=install
 while [[ $# -gt 0 ]]; do
 	case $1 in
-	--debs) DEBS=$2; shift 2 ;;
+	--debs) need_arg $# "$1"; DEBS=$2; shift 2 ;;
 	--default) MODE=default; shift ;;
 	--remove) MODE=remove; shift ;;
 	*) die "unknown option $1 (see the header of $0)" ;;
@@ -46,128 +52,76 @@ NV_PKGS=("nvidia-headless-no-dkms-$BRANCH-open" "nvidia-utils-$BRANCH" "libnvidi
 	"libnvidia-decode-$BRANCH" "libnvidia-encode-$BRANCH" "libnvidia-extra-$BRANCH"
 	"libnvidia-fbc1-$BRANCH" "libnvidia-cfg1-$BRANCH" "xserver-xorg-video-nvidia-$BRANCH")
 NV_DKMS=nvidia-n1x-dkms-$BRANCH-open
-
-# Installed NVIDIA driver packages as "name=version" (kernel modules included, ours excluded).
-nvidia_installed() {
-	dpkg-query -W -f '${db:Status-Abbrev}${Package}=${Version}\n' 2>/dev/null |
-		sed -n 's/^ii *//p' | grep -E '^(lib)?nvidia-|^xserver-xorg-video-nvidia-|^linux-modules-nvidia-' |
-		grep -vE "^($NV_DKMS|nvidia-firmware-|nvidia-vaapi-driver|libnvidia-egl-)" || true
-}
-
-# Temporary <codename>-proposed at priority 1 (only versions asked for by name), as
-# proart-p16-linux's install/lib.sh does; removed again when the script exits.
-proposed_disable() { rm -f "$PROPOSED_SRC" "$PROPOSED_PIN"; }
-proposed_enable() {
-	local codename uri
-	# shellcheck source=/dev/null
-	codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
-	uri=$(awk '/^URIs:/ {print $2; exit}' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true)
-	trap proposed_disable EXIT
-	printf 'Types: deb\nURIs: %s\nSuites: %s-proposed\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' \
-		"${uri:-http://archive.ubuntu.com/ubuntu/}" "$codename" >"$PROPOSED_SRC"
-	printf 'Package: *\nPin: release a=%s-proposed\nPin-Priority: 1\n' "$codename" >"$PROPOSED_PIN"
-	apt-get update -q || warn "not every package source could be refreshed - continuing"
-}
-
-grub_point() { # grub_point set-default|reboot KERNELRELEASE
-	local id
-	id=$(grub_entry_id "$GRUB_CFG" "$2") || die "no GRUB entry for $2 in $GRUB_CFG"
-	"grub-$1" "$id"
-	msg "grub-$1 $id"
-}
-
-# Before anything changes: /etc/default/grub must be editable as install.sh edits it, and no
-# /etc/default/grub.d/*.cfg may override what it sets there.
-grub_preflight() {
-	local v over
-	grub_default_get "$GRUB_FILE" >/dev/null || die "cannot edit GRUB_CMDLINE_LINUX_DEFAULT in $GRUB_FILE (see above)"
-	grub_var_get "$GRUB_FILE" GRUB_DEFAULT >/dev/null || die "cannot edit GRUB_DEFAULT in $GRUB_FILE (see above)"
-	for v in GRUB_CMDLINE_LINUX_DEFAULT GRUB_DEFAULT; do
-		over=$(grub_dropin_overrides "$GRUB_DROPINS" "$v")
-		[[ -z $over ]] || die "$GRUB_DROPINS sets $v after $GRUB_FILE, so editing $GRUB_FILE would not reach grub.cfg: $over"
-	done
-}
-
-# After update-grub: grub.cfg must boot RELEASE with the USB4 options and honour saved_entry.
-grub_verify() {
-	local args
-	args=$(grub_linux_args "$GRUB_CFG" "$RELEASE") || die "no GRUB entry for $RELEASE in $GRUB_CFG"
-	cmdline_has_pci "$args" || die "$GRUB_CFG boots $RELEASE without ${N1X_PCI_OPTS[*]}: $args"
-	# shellcheck disable=SC2016 # literal grub.cfg text
-	grep -qF 'set default="${saved_entry}"' "$GRUB_CFG" ||
-		die "$GRUB_CFG does not boot saved_entry (GRUB_DEFAULT=saved has no effect)"
-}
-
-# saved_entry in grubenv: GRUB's default when GRUB_DEFAULT=saved.
-grub_saved_entry() { grub-editenv - list 2>/dev/null | sed -n 's/^saved_entry=//p'; }
-
-dkms_all_kernels() { # build our NVIDIA modules for every kernel that has headers
-	local d k
-	for d in /lib/modules/*/build; do
-		[[ -d $d ]] || continue
-		k=${d%/build} k=${k##*/}
-		if dkms status -m nvidia-n1x -v "$NVIDIA_VERSION" -k "$k" | grep -q installed; then
-			continue
-		fi
-		msg "Building NVIDIA $NVIDIA_VERSION for $k (DKMS, several minutes)"
-		if ! dkms install -m nvidia-n1x -v "$NVIDIA_VERSION" -k "$k"; then
-			[[ $k == "$RELEASE" ]] && die "NVIDIA modules failed to build for $k"
-			warn "NVIDIA modules failed to build for $k: that kernel will have no GPU driver"
-		fi
-	done
-}
+TMP=$(mktemp -d)
+trap 'proposed_disable; rm -rf "$TMP"' EXIT
 
 do_install() {
 	[[ $(dpkg --print-architecture) == arm64 ]] || die "arm64 only"
-	grub_preflight
 	# shellcheck source=/dev/null
 	[[ $(. /etc/os-release && echo "$VERSION_ID") == 26.04 ]] || die "Ubuntu 26.04 only"
-	grep -qx H7607BA /sys/class/dmi/id/product_name 2>/dev/null ||
-		grep -q H7607BA /sys/class/dmi/id/product_name 2>/dev/null ||
+	grep -q H7607BA /sys/class/dmi/id/product_name 2>/dev/null ||
 		warn "tested on the ASUS ProArt P16 H7607BA only; this is $(cat /sys/class/dmi/id/product_name 2>/dev/null)"
-	local img hdr dkmsdeb
-	img=$(compgen -G "$DEBS/linux-image-${RELEASE}_*.deb" | head -1) || true
-	hdr=$(compgen -G "$DEBS/linux-headers-${RELEASE}_*.deb" | head -1) || true
-	dkmsdeb=$(compgen -G "$DEBS/${NV_DKMS}_$NVIDIA_VERSION-*.deb" | head -1) || true
-	[[ -f $img && -f $hdr && -f $dkmsdeb ]] || die "missing packages for $RELEASE in $DEBS (run scripts/build.sh)"
+	! secure_boot_enabled || die "Secure Boot is on. This kernel is signed with a throwaway build" \
+		"key that the firmware and shim don't trust, so it would not boot. Turn Secure Boot off" \
+		"in the firmware setup (or sign the kernel and modules with a key of your own, enrolled" \
+		"with mokutil) and run this again."
+	grub_preflight
+	local img=$DEBS/linux-image-${RELEASE}_${RELEASE}_arm64.deb
+	local hdr=$DEBS/linux-headers-${RELEASE}_${RELEASE}_arm64.deb
+	local dkmsdeb=$DEBS/${NV_DKMS}_$NVIDIA_VERSION-n1x${NVIDIA_N1X_REVISION}_arm64.deb d
+	for d in "$img" "$hdr" "$dkmsdeb"; do [[ -f $d ]] || die "missing $d (run scripts/build.sh)"; done
 	[[ -f $DEBS/SHA256SUMS ]] || die "missing $DEBS/SHA256SUMS"
 	(cd "$DEBS" && sha256sum --quiet -c SHA256SUMS) || die "package checksums do not match $DEBS/SHA256SUMS"
+	# apt takes a .deb whose version is installed for installed, even if it was rebuilt.
+	for d in "$img" "$hdr" "$dkmsdeb"; do
+		deb_vs_installed "$d" || [[ $? -eq 1 ]] ||
+			die "${d##*/} is installed with other files under the same version: raise N1X_REVISION or NVIDIA_N1X_REVISION in sources and rebuild"
+	done
+
+	# The kernel GRUB keeps as the default (and falls back to) must get our NVIDIA modules.
+	local prev p k
+	if [[ -f $STATE/previous-kernel ]]; then
+		prev=$(cat "$STATE/previous-kernel")
+	else
+		prev=$(uname -r)
+		is_n1x_release "$prev" && die "running $prev but $STATE is missing; boot an Ubuntu kernel first"
+	fi
+	[[ -d $MODULES_ROOT/$prev/build ]] ||
+		die "$prev, GRUB's default, has no headers, so it would get no NVIDIA driver (sudo apt install linux-headers-$prev)"
+	local installed
+	installed=$(dpkg_installed)
+	local -a remove=()
+	mapfile -t remove < <(nvidia_other_versions "$BRANCH" "$NV_DKMS" <<<"$installed")
+	for p in "${remove[@]}"; do
+		k=$(nvidia_prebuilt_kernel "$p") || continue
+		if [[ -f $BOOT_ROOT/vmlinuz-$k && ! -d $MODULES_ROOT/$k/build ]]; then
+			die "$p goes, and $k has no headers to build ours (sudo apt install linux-headers-$k)"
+		fi
+	done
+
+	proposed_enable
+	nvidia_pin_text "$BRANCH" "$NVIDIA_VERSION" >"$TMP/pin"
+	printf '%s\n' "${remove[@]}" >"$TMP/allowed"
+	local -a args=(install "$img" "$hdr" "$dkmsdeb" "${NV_PKGS[@]}" "${remove[@]/%/-}")
+	msg "Checking the apt transaction (apt-get -s)"
+	apt_simulate "$TMP/allowed" "$BRANCH" "$NVIDIA_VERSION" -o Dir::Etc::Preferences="$TMP/pin" "${args[@]}"
 
 	# What --remove goes back to. Kept from the first install, so a reinstall does not overwrite it.
 	mkdir -p "$STATE"
 	if [[ ! -f $STATE/previous-kernel ]]; then
-		local prev
-		prev=$(uname -r)
-		is_n1x_release "$prev" && die "running $prev but $STATE is missing; boot an Ubuntu kernel first"
-		echo "$prev" >"$STATE/previous-kernel"
-		nvidia_installed >"$STATE/nvidia-before"
+		awk -F= 'NR == FNR { r[$0]; next } $1 in r' "$TMP/allowed" - <<<"$installed" >"$STATE/nvidia-before"
 		cp -p "$GRUB_FILE" "$STATE/grub.before"
+		echo "$prev" >"$STATE/previous-kernel"
 	fi
-	msg "Previous kernel: $(cat "$STATE/previous-kernel"); NVIDIA before: $(paste -sd' ' "$STATE/nvidia-before")"
+	msg "Previous kernel: $prev; NVIDIA before: $(paste -sd' ' "$STATE/nvidia-before")"
 
-	cat >"$PIN" <<-EOF
-		# n1x-kernel-ubuntu (scripts/install.sh): NVIDIA user space must match the kernel
-		# modules of $NV_DKMS exactly. Removed by scripts/install.sh --remove.
-		Package: nvidia-dkms-$BRANCH-open
-		Pin: version *
-		Pin-Priority: -1
-
-		Package: /^(lib)?nvidia-.*-$BRANCH(-open|-server)?$/ /^nvidia-firmware-$BRANCH-/ xserver-xorg-video-nvidia-$BRANCH
-		Pin: version $NVIDIA_UBUNTU_VERSION
-		Pin-Priority: 1001
-	EOF
-	proposed_enable
-
-	# Other NVIDIA branches' packages (615 user space, prebuilt 615 modules) go; 620 replaces them.
-	local -a remove=() want=()
-	local p
-	for p in $(nvidia_installed | cut -d= -f1); do
-		[[ $p == *-$BRANCH || $p == *-$BRANCH-* ]] || remove+=("$p-")
-	done
-	for p in "${NV_PKGS[@]}"; do want+=("$p=$NVIDIA_UBUNTU_VERSION"); done
-	msg "Installing $RELEASE and NVIDIA $NVIDIA_VERSION"
-	"${APT[@]}" install "$img" "$hdr" "$dkmsdeb" "${want[@]}" "${remove[@]}"
+	cp "$TMP/pin" "$PIN"
+	msg "Installing $RELEASE and NVIDIA $NVIDIA_VERSION${remove[*]:+, removing ${remove[*]}}"
+	"${APT[@]}" "${args[@]}" || die "the apt transaction failed (see above); fix that and run install.sh again"
 	dkms_all_kernels
+	# The kernel loads the NVIDIA modules from the initramfs; DKMS 3 rebuilds none of them.
+	msg "Refreshing every initramfs"
+	update-initramfs -u -k all
 
 	msg "Kernel command line: USB4 PCI hotplug padding"
 	grub_default_set "$GRUB_FILE" "$(cmdline_add_pci "$(grub_default_get "$GRUB_FILE")")"
@@ -178,8 +132,6 @@ do_install() {
 	[[ -z $was ]] || msg "GRUB_DEFAULT=saved (was: $was), so the fallback boot below works"
 	update-grub
 	grub_verify
-	local prev
-	prev=$(cat "$STATE/previous-kernel")
 	echo
 	if [[ $(grub_saved_entry) == "$(grub_entry_id "$GRUB_CFG" "$RELEASE")" ]]; then
 		# Made the default with --default before; a re-run keeps that choice.
@@ -208,19 +160,30 @@ do_remove() {
 		die "$STATE is missing: nothing to restore (was scripts/install.sh run on this machine?)"
 	local prev
 	prev=$(cat "$STATE/previous-kernel")
-	[[ -d /lib/modules/$prev ]] || die "previous kernel $prev is no longer installed"
+	[[ -d $MODULES_ROOT/$prev ]] || die "previous kernel $prev is no longer installed"
 
-	rm -f "$PIN"
+	# What comes back is the packages from before, at their current versions: the exact ones
+	# may have left the archive (a security respin of 615).
+	local -a want=() remove=() kpkgs=()
+	mapfile -t want < <(cut -d= -f1 "$STATE/nvidia-before" | grep . || true)
+	mapfile -t remove < <(dpkg_installed | nvidia_restore_removals "$BRANCH" "$NV_DKMS" "$STATE/nvidia-before")
+	mapfile -t kpkgs < <(dpkg-query -W -f '${db:Status-Abbrev}${Package}\n' | n1x_kernel_pkgs)
 	proposed_enable
-	local -a want=() remove=()
-	local p
-	mapfile -t want <"$STATE/nvidia-before"
-	for p in $(dpkg-query -W -f '${db:Status-Abbrev}${Package}\n' | sed -n 's/^ii *//p' |
-		grep -E "^(lib)?nvidia-.*-$BRANCH(-open|-server)?$|^nvidia-firmware-$BRANCH-|^xserver-xorg-video-nvidia-$BRANCH$|^$NV_DKMS$"); do
-		grep -q "^$p=" "$STATE/nvidia-before" || remove+=("$p-")
-	done
-	msg "Restoring NVIDIA: ${want[*]:-(none)}"
-	"${APT[@]}" install --allow-downgrades "${want[@]}" "${remove[@]}"
+	# The pin stays until the restore has worked, so a failure can't leave 620 unpinned.
+	if printf '%s\n' "${want[@]}" | grep -qx "nvidia-dkms-$BRANCH-open"; then
+		nvidia_pin_text "$BRANCH" "$NVIDIA_VERSION" user-space-only >"$PIN"
+	fi
+	printf '%s\n' "${remove[@]}" >"$TMP/allowed"
+	printf '%s\n' "${kpkgs[@]}" >"$TMP/kallowed"
+	msg "Checking the apt transactions (apt-get -s)"
+	apt_simulate "$TMP/allowed" "" "" install "${want[@]}" "${remove[@]/%/-}"
+	[[ ${#kpkgs[@]} -eq 0 ]] || apt_simulate "$TMP/kallowed" "" "" purge "${kpkgs[@]}"
+
+	msg "Restoring NVIDIA: ${want[*]:-(none)}${remove[*]:+; removing ${remove[*]}}"
+	"${APT[@]}" install "${want[@]}" "${remove[@]/%/-}" ||
+		die "restoring the NVIDIA packages failed (see above); the apt pin stays, so 620 stays whole. Fix that and run --remove again"
+	rm -f "$PIN"
+	update-initramfs -u -k all
 
 	msg "Kernel command line and GRUB default"
 	local cmdline
@@ -233,9 +196,6 @@ do_remove() {
 		grub_default_set "$GRUB_FILE" "$(cmdline_remove_pci "$cmdline")"
 	fi
 	grep -E '^(GRUB_DEFAULT|GRUB_CMDLINE_LINUX_DEFAULT)=' "$GRUB_FILE"
-	local -a kpkgs
-	mapfile -t kpkgs < <(dpkg-query -W -f '${db:Status-Abbrev}${Package}\n' | sed -n 's/^[ir][iHUFWt] *//p' |
-		grep -E '^linux-(image|headers)-[0-9]+\.[0-9]+\.[0-9]+-n1x[0-9]+$' || true)
 	if [[ ${#kpkgs[@]} -gt 0 ]]; then
 		is_n1x_release "$(uname -r)" && warn "removing the running kernel $(uname -r): reboot afterwards"
 		msg "Purging ${kpkgs[*]}"

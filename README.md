@@ -145,17 +145,29 @@ bash scripts/check.sh            # kernel, USB4, NVIDIA
 sudo bash scripts/install.sh --default   # after a good boot: make it GRUB's default
 ```
 
-`install.sh`:
+Secure Boot must be off: the kernel is signed with a throwaway build key, which shim and the
+firmware don't trust, so `install.sh` stops if `mokutil --sb-state` reports it on.
+
+`install.sh` first checks everything it can without changing anything: the packages in `out/`
+against `SHA256SUMS` (a package rebuilt under a version that is already installed is refused;
+raise the revision in `sources`), `/etc/default/grub`, and the whole apt transaction, which it
+simulates (`apt-get -s`). It stops if apt can't do it, would remove anything it didn't ask for,
+or would install a NVIDIA 620 package of another version than 620.73.04. Then it:
 
 1. Installs the kernel and headers packages.
 2. Installs NVIDIA 620: Ubuntu's user space, taken from `resolute-proposed` while 620 is only
    there (that source is temporary, pinned to priority 1 and removed when the script ends),
-   and `nvidia-n1x-dkms-620-open`. It removes the other NVIDIA branch's packages, e.g. 615
-   and the prebuilt `linux-modules-nvidia-615-open-*`. It builds the DKMS modules for every
-   kernel with headers, Ubuntu's `linux-nvidia` included, so the fallback kernel keeps a GPU
-   driver.
+   and `nvidia-n1x-dkms-620-open`. It removes the packages of other NVIDIA driver versions
+   (a 615 or 580 in the name: e.g. `nvidia-utils-615`, `nvidia-firmware-615-*` and the
+   prebuilt `linux-modules-nvidia-615-open-*`) and Ubuntu's `nvidia-dkms-620-open`, and
+   nothing else: `nvidia-settings`, `nvidia-prime`, `nvidia-container-toolkit`,
+   `libnvidia-container1` and other packages of no particular driver version stay. It builds
+   the DKMS modules for every kernel with headers, Ubuntu's `linux-nvidia` included, so the
+   fallback kernel keeps a GPU driver; if that build fails for any kernel that boots, it stops
+   with an error before touching GRUB. It then refreshes every initramfs, since the kernel
+   loads the NVIDIA modules from there.
 3. Writes `/etc/apt/preferences.d/n1x-kernel-ubuntu-nvidia`, which holds the NVIDIA user space
-   at exactly the module version.
+   at the module version: 620.73.04, any Ubuntu revision of it (see [Updates](#updates)).
 4. Adds `pci=hpbussize=0x80,hpmmiosize=32M,hpmmioprefsize=32G` to
    `GRUB_CMDLINE_LINUX_DEFAULT`. Docks need this PCI hotplug padding behind the USB4 tunnel
    root ports; the values are Omarchy's for the ProArt P14/P16. Running it again changes
@@ -221,24 +233,31 @@ sudo bash scripts/install.sh --remove
 sudo reboot
 ```
 
-This reinstalls the NVIDIA packages that were there before (exact versions, e.g. Ubuntu's 615
-and its prebuilt modules for `linux-nvidia`), purges `nvidia-n1x-dkms-620-open`, the 620 user
-space and every `linux-image/headers-*-n1x*` package, removes the apt pin and our `pci=`
-options, and points GRUB's default back at the kernel that was running at install time
+This reinstalls the NVIDIA packages that were there before (by name, at the version the
+archive has now, e.g. Ubuntu's 615 and its prebuilt modules for `linux-nvidia`: the exact
+versions from back then may be gone after a security update), purges
+`nvidia-n1x-dkms-620-open`, the 620 user space and every `linux-image/headers-*-n1x*`
+package, removes the apt pin and our `pci=` options, and points GRUB's default back at the kernel that was running at install time
 (Ubuntu's `linux-nvidia`). The kernel command line and `GRUB_DEFAULT` go back to what they
 were before the first install (a `pci=` value of yours that the install replaced comes back;
-an option you had already stays); a later edit of your own to either is kept.
+an option you had already stays); a later edit of your own to either is kept. It simulates
+both apt transactions first and keeps the apt pin until the NVIDIA packages are back, so a
+failure leaves a consistent 620 install that `--remove` can be run on again.
 
 ## Updates
 
 - **Ubuntu kernels**: unaffected. A new `linux-nvidia` kernel gets our NVIDIA modules from
   DKMS when its headers are installed, as it would with Ubuntu's DKMS package.
-- **NVIDIA user space**: the apt pin holds 620.73.04, including after it moves from
-  `-proposed` to `-updates`. Moving to a newer driver means changing `NVIDIA_VERSION` in
-  `sources`, re-checking `patches/nvidia`, rebuilding and running `install.sh` again. A
-  change to `patches/nvidia` alone raises `NVIDIA_N1X_REVISION`, so dpkg sees a new version.
-  The package refreshes every initramfs when it installs, because the kernel loads the NVIDIA
-  modules from there.
+- **NVIDIA user space**: the apt pin holds the upstream version 620.73.04 and takes any Ubuntu
+  revision of it, so it follows the move from `-proposed` to `-updates` and Ubuntu's respins
+  of 620.73.04 (security fixes Ubuntu backports into this version included). It also holds
+  back every newer NVIDIA release, security releases included: those wait until this
+  repository moves to them, since the modules must be built from the same version. Moving to
+  a newer driver means changing `NVIDIA_VERSION` in `sources`, re-checking `patches/nvidia`,
+  rebuilding and running `install.sh` again. Watch NVIDIA's security bulletins while you run
+  this. A change to `patches/nvidia` alone raises `NVIDIA_N1X_REVISION`, so dpkg sees a new
+  version. The package refreshes every initramfs when it installs, because the kernel loads
+  the NVIDIA modules from there.
 - **This kernel**: a new Omarchy pin or kernel.org version is a change to `sources`, with
   `N1X_REVISION` raised. Each revision is a new package name (`linux-image-7.3.0-n1x2`), so it
   installs next to the previous one, as Ubuntu's kernels do.
