@@ -124,6 +124,8 @@ do_install() {
 	fi
 	echo "$prev" >"$STATE/previous-kernel"
 	msg "Previous kernel: $prev; NVIDIA before: $(paste -sd' ' "$STATE/nvidia-before")"
+	# Before any package changes, so that every failure from here on leaves $prev the default.
+	grub_keep_fallback "$prev"
 
 	cp "$TMP/pin" "$PIN"
 	msg "Installing $RELEASE and NVIDIA $NVIDIA_VERSION${remove[*]:+, removing ${remove[*]}}"
@@ -137,14 +139,10 @@ do_install() {
 	msg "Kernel command line: USB4 PCI hotplug padding"
 	grub_default_set "$GRUB_FILE" "$(cmdline_add_pci "$(grub_default_get "$GRUB_FILE")")"
 	grep '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_FILE"
-	# grub-set-default and grub-reboot only work with GRUB_DEFAULT=saved (--remove restores it).
-	local was
-	was=$(grub_use_saved "$GRUB_FILE")
-	[[ -z $was ]] || msg "GRUB_DEFAULT=saved (was: $was), so the fallback boot below works"
 	update-grub
 	grub_verify
 	echo
-	if [[ $(grub_saved_entry) == "$(grub_entry_id "$GRUB_CFG" "$RELEASE")" ]]; then
+	if grub_default_is "$RELEASE"; then
 		# Made the default with --default before; a re-run keeps that choice.
 		msg "GRUB's default stays $RELEASE (chosen with --default)"
 		echo "Done. $RELEASE stays GRUB's default. Reboot if the kernel or NVIDIA modules changed."

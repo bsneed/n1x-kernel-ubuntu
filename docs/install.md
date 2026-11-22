@@ -24,8 +24,8 @@ or would install a NVIDIA 620 package of another version than 620.73.04. Then it
    `libnvidia-container1` and other packages of no particular driver version stay. It builds
    the DKMS modules for every kernel with headers, Ubuntu's `linux-nvidia` included, so the
    fallback kernel keeps a GPU driver; if that build fails for any kernel that boots, it stops
-   with an error before touching GRUB. It then refreshes every initramfs, since the kernel
-   loads the NVIDIA modules from there.
+   with an error, and GRUB's default is still the old kernel (step 5). It then refreshes every
+   initramfs, since the kernel loads the NVIDIA modules from there.
 3. Writes `/etc/apt/preferences.d/n1x-kernel-ubuntu-nvidia`, which holds the NVIDIA user space
    at the module version: 620.73.04, any Ubuntu revision of it (see [Updates](#updates)).
 4. Adds `pci=hpbussize=0x80,hpmmiosize=32M,hpmmioprefsize=32G` to
@@ -39,8 +39,10 @@ or would install a NVIDIA 620 package of another version than 620.73.04. Then it
    hang or SoC reset on that boot falls back to the old kernel on the next one. That needs
    `GRUB_DEFAULT=saved` (proart-p16-linux sets it; stock Ubuntu has `0`, which boots the
    newest kernel whatever `grub-set-default` says), so `install.sh` sets it and `--remove`
-   puts the old value back. After `--default`, running `install.sh` again keeps the new kernel
-   as the default. Once Ubuntu removes that old kernel (`apt autoremove` keeps the running and
+   puts the old value back. It sets both before installing any package: the kernel package
+   runs `update-grub` itself, so if anything after that fails, GRUB still boots the old kernel
+   by default. After `--default`, running `install.sh` again keeps the new kernel as the
+   default. Once Ubuntu removes that old kernel (`apt autoremove` keeps the running and
    the two newest), `install.sh` and `--remove` say so and use the newest installed
    `linux-nvidia` kernel in its place; run `install.sh` again then, so GRUB's fallback follows.
 6. Writes `/etc/systemd/system/nvidia-persistenced.service` when Ubuntu's unit needs it.

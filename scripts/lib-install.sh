@@ -184,5 +184,5 @@ dkms_all_kernels() {
 	[[ ${#nohdr[@]} -eq 0 ]] ||
 		warn "no NVIDIA modules for ${nohdr[*]}: no headers (sudo apt install linux-headers-<release>)"
 	[[ ${#failed[@]} -eq 0 ]] ||
-		die "NVIDIA $NVIDIA_VERSION modules failed to build for ${failed[*]}, which would boot without a GPU driver. See /var/lib/dkms/nvidia-n1x/$NVIDIA_VERSION/build/make.log. GRUB was not changed; sudo bash scripts/install.sh --remove goes back."
+		die "NVIDIA $NVIDIA_VERSION modules failed to build for ${failed[*]}, which would boot without a GPU driver. See /var/lib/dkms/nvidia-n1x/$NVIDIA_VERSION/build/make.log. GRUB's default is still the kernel you ran before the install; sudo bash scripts/install.sh --remove goes back."
 }

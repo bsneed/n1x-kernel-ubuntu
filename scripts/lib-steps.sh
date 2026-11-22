@@ -63,6 +63,25 @@ grub_verify() {
 # saved_entry in grubenv: GRUB's default when GRUB_DEFAULT=saved.
 grub_saved_entry() { grub-editenv - list 2>/dev/null | sed -n 's/^saved_entry=//p'; }
 
+# grub_default_is KERNELRELEASE: true if saved_entry is that kernel's entry (in grub.cfg).
+grub_default_is() {
+	local id
+	id=$(grub_entry_id "$GRUB_CFG" "$1" 2>/dev/null) && [[ $(grub_saved_entry) == "$id" ]]
+}
+
+# grub_keep_fallback PREV: run before any package changes, so that a failure anywhere after it
+# leaves PREV booting. The kernel package's own update-grub makes the new kernel entry 0, which
+# GRUB_DEFAULT=0 (stock Ubuntu) would boot; with GRUB_DEFAULT=saved (which grub-set-default and
+# grub-reboot need; --remove restores the old value) and saved_entry on PREV it can't. A RELEASE
+# made the default with --default stays the default.
+grub_keep_fallback() {
+	local was
+	was=$(grub_use_saved "$GRUB_FILE") || die "cannot edit GRUB_DEFAULT in $GRUB_FILE"
+	[[ -z $was ]] || msg "GRUB_DEFAULT=saved (was: $was), so GRUB keeps its default and the fallback boot works"
+	update-grub || die "update-grub failed (see above); fix that and run install.sh again"
+	grub_default_is "$RELEASE" || grub_point set-default "$1"
+}
+
 # Writes (or refreshes) the nvidia-persistenced override when the packaged unit has the
 # ordering cycle, and drops ours when it no longer does. An override someone else wrote stays.
 persistenced_apply() {
