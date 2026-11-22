@@ -39,8 +39,12 @@ must be the same version. `scripts/install.sh` pins the user space to that versi
 
 620 alone refuses system suspend on the N1x: it lists the N1x GPU (GB20B) as not supporting
 power management, so every s2idle attempt fails with `NVRM: PM suspend notifier failed: 0x56`.
-`patches/nvidia/0010` restores 615's behaviour for GB20B. [docs/nvidia-gb20b-suspend.md](docs/nvidia-gb20b-suspend.md)
-has the details, the evidence, a draft report for NVIDIA, and when to drop the patch.
+`patches/nvidia/0010` restores 615's behaviour for the three N1x laptop GPUs only (PCI device
+IDs 2E03, 2E06, 2E13). Every other GPU on 620's list keeps 620's behaviour, including DGX
+Spark's GB10 (2E12), which seems to be a GB20B too and may be what NVIDIA meant the entry for.
+[docs/nvidia-gb20b-suspend.md](docs/nvidia-gb20b-suspend.md) has the details, the evidence, a
+draft report for NVIDIA, and when to drop the patch. `install.sh` refuses to run on a machine
+without one of those three GPUs.
 
 615 (what Omarchy ships) isn't used here. Ubuntu's 615 user space is 615.71.09, whose kernel
 modules don't build on 7.3 (the `dmem_cgroup` API changed). 615.78.08, which does, has no

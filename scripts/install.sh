@@ -61,6 +61,7 @@ do_install() {
 	[[ $(dpkg --print-architecture) == arm64 ]] || die "arm64 only"
 	# shellcheck source=/dev/null
 	[[ $(. /etc/os-release && echo "$VERSION_ID") == 26.04 ]] || die "Ubuntu 26.04 only"
+	n1x_gpu >/dev/null || die "no RTX Spark N1X GPU (10de:2e03, 2e06 or 2e13): this is for N1x laptops only"
 	grep -q H7607BA /sys/class/dmi/id/product_name 2>/dev/null ||
 		warn "tested on the ASUS ProArt P16 H7607BA only; this is $(cat /sys/class/dmi/id/product_name 2>/dev/null)"
 	! secure_boot_enabled || die "Secure Boot is on. This kernel is signed with a throwaway build" \

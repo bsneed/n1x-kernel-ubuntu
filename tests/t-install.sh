@@ -123,6 +123,20 @@ else
 	skip "deb_vs_installed" "no dpkg-deb"
 fi
 
+# --- the N1x GPU ------------------------------------------------------------------------------
+mkpci() { mkdir -p "$T/pci-$1/$2" && printf '%s\n' "$3" >"$T/pci-$1/$2/vendor" && printf '%s\n' "$4" >"$T/pci-$1/$2/device"; }
+mkpci p16 0000:00:00.0 0x10de 0x22ce
+mkpci p16 000f:01:00.0 0x10de 0x2e06
+mkpci spark 000f:01:00.0 0x10de 0x2e12
+mkpci other 0000:01:00.0 0x8086 0x2e06
+mkpci upper 0000:01:00.0 0x10DE 0x2E13
+eq "N1x GPU of a ProArt P16" 10de:2e06 "$(PCI_ROOT=$T/pci-p16 n1x_gpu)"
+eq "N1x GPU in upper case" 10de:2e13 "$(PCI_ROOT=$T/pci-upper n1x_gpu)"
+fails "no N1x GPU on a DGX Spark (GB10)" env PCI_ROOT="$T/pci-spark" bash -c '. scripts/lib-install.sh; n1x_gpu'
+fails "no N1x GPU from another vendor" env PCI_ROOT="$T/pci-other" bash -c '. scripts/lib-install.sh; n1x_gpu'
+fails "no N1x GPU without PCI devices" env PCI_ROOT="$T/pci-none" bash -c '. scripts/lib-install.sh; n1x_gpu'
+unset -f mkpci
+
 # --- Secure Boot -------------------------------------------------------------------------------
 mokutil() { printf '%s\n' "$sb_out"; }
 sb_out="SecureBoot enabled"

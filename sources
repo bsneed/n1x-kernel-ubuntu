@@ -31,4 +31,4 @@ NVIDIA_SHA256=3a107b31b22d6f5c8da34e5e22a66e38ccdb7a92ee23266d0e064d3b9635c93f
 # install.sh takes any Ubuntu revision of NVIDIA_VERSION; check.sh reports a different one.
 NVIDIA_UBUNTU_VERSION=620.73.04-0ubuntu0.26.04.1
 # Our revision of the DKMS package (nvidia-n1x-dkms-620-open 620.73.04-n1x<N>).
-NVIDIA_N1X_REVISION=1
+NVIDIA_N1X_REVISION=2

@@ -6,6 +6,7 @@
 DPKG_INFO=${DPKG_INFO:-/var/lib/dpkg/info}
 MODULES_ROOT=${MODULES_ROOT:-/lib/modules}
 BOOT_ROOT=${BOOT_ROOT:-/boot}
+PCI_ROOT=${PCI_ROOT:-/sys/bus/pci/devices}
 
 # dpkg_installed: the installed packages as "name=version" lines.
 dpkg_installed() {
@@ -62,6 +63,24 @@ deb_vs_installed() {
 	for md5 in "$DPKG_INFO/$pkg.md5sums" "$DPKG_INFO/$pkg:arm64.md5sums" ""; do [[ -f $md5 ]] && break; done
 	[[ -n $md5 ]] && cmp -s <(deb_md5sums "$1") <(sort "$md5") && return 0
 	return 2
+}
+
+# n1x_gpu: prints the N1x laptop GPU (RTX Spark N1X, 10de:2e03, 2e06 or 2e13) as vendor:device,
+# or fails if there is none (a DGX Spark's GB10 is 10de:2e12).
+n1x_gpu() {
+	local d id
+	for d in "$PCI_ROOT"/*; do
+		[[ -r $d/vendor && -r $d/device ]] || continue
+		id="$(<"$d/vendor"):$(<"$d/device")"
+		case ${id,,} in
+		0x10de:0x2e03 | 0x10de:0x2e06 | 0x10de:0x2e13)
+			id=${id,,}
+			printf '%s\n' "${id//0x/}"
+			return 0
+			;;
+		esac
+	done
+	return 1
 }
 
 # secure_boot_enabled: true if UEFI Secure Boot is on (mokutil --sb-state, or the SecureBoot
