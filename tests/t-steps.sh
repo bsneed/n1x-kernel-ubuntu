@@ -120,4 +120,8 @@ eq "restore: a failed restore stops" \
 	"$(steps restore_packages 7.0.0-1026-nvidia "$T/steps-new-pin" install nvidia-utils-615)"
 eq "restore: the pin stays after a failed restore" new "$(cat "$PIN")"
 rm "$T/steps-apt-fails"
+echo old >"$PIN"
+eq "restore: no GRUB entry for the old kernel stops before the pin and apt" "1|grub-editenv unset next_entry" \
+	"$(steps restore_packages 7.0.0-1020-nvidia "$T/steps-new-pin" install nvidia-utils-615)"
+eq "restore: the pin in /etc is unchanged then (H4)" old "$(cat "$PIN")"
 unset -f mkcfg id_of update-grub grub-editenv grub-set-default steps apt-get

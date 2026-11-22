@@ -102,14 +102,15 @@ install_packages() {
 
 # restore_packages PREV PINFILE APT-ARGS...: --remove's NVIDIA restore. GRUB boots PREV first
 # (grub_back_to), since the restore takes our modules away from every kernel, 7.3 included (G4);
-# then the pin PINFILE, if there is one, goes to /etc, and apt runs APT-ARGS. The pin stays until
-# that has worked, so a failure can't leave 620 unpinned.
+# then the pin PINFILE, if there is one, goes to /etc, so a GRUB failure leaves the old pin there
+# (H4), and apt runs APT-ARGS. The pin stays until that has worked, so a failure can't leave 620
+# unpinned.
 restore_packages() {
 	local prev=$1 pin=$2
 	shift 2
-	[[ ! -f $pin ]] || cp "$pin" "$PIN"
 	msg "GRUB default: $prev"
 	grub_back_to "$prev"
+	[[ ! -f $pin ]] || cp "$pin" "$PIN"
 	"${APT[@]}" "$@" ||
 		die "restoring the NVIDIA packages failed (see above); the apt pin stays, so 620 stays whole. Fix that and run --remove again"
 	rm -f "$PIN"
