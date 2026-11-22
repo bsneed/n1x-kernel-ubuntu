@@ -88,14 +88,17 @@ limitation into the README.
 - [x] Work through the code-review findings (2026-11-21, branch `bsneed/review-fixes`; every
   finding's resolution is in `docs/reviews/2026-11-21-initial-resolutions.md`, and those of the
   exit-gate review in `docs/reviews/2026-11-21-exit-gate-resolutions.md`).
-- [ ] A plain `dpkg -i` / `apt install` of `nvidia-n1x-dkms-620-open` builds the modules only for
-  the running and the newest kernel (DKMS's `common.postinst`); `install.sh` builds the rest.
-  Decide whether the postinst should build for every kernel with headers itself.
+- [x] ~~Make the postinst build for every kernel with headers.~~ Not needed on 26.04: its dkms
+  (3.2.2-1ubuntu1) ships `autoinstall_all_kernels="yes"`, so DKMS's `common.postinst` already
+  builds for every kernel with headers. `install.sh`'s `dkms_all_kernels` stays as the check
+  that fails loudly.
 - [ ] `install.sh` doesn't check the free space in `/boot` before installing the kernel (an
   initramfs per kernel); Ubuntu's own kernel packages don't either.
-- [ ] `--remove` removes `nvidia-n1x-dkms-620-open` (`name-`) but docs/install.md says it purges
-  it: the container rehearsal of the exit-gate fixes left it in dpkg's `rc` state (no conffiles,
-  only the postrm). Purge it (`name_` in the restore transaction) or change the wording.
+- [ ] *(optional)* `--remove` removes `nvidia-n1x-dkms-620-open` and the 620 user space
+  (`name-`), so dpkg keeps their `rc` records (the container rehearsal of the exit-gate fixes).
+  docs/install.md now says "removes". Our package has no conffiles, so purging it (`name_`)
+  would only drop that record; for the 620 user space, check first that a purge in the same
+  transaction as 615's install can't delete a conffile 615 now owns.
 - [ ] `--remove` puts Ubuntu's `nvidia-dkms-620-open` back while 7.3 is still installed, so DKMS
   builds Ubuntu's modules for 7.3 too; purging 7.3 afterwards leaves `/lib/modules/7.3.0-n1x1`
   with them and a `dkms status` entry (seen in the exit-gate container rehearsal; `dkms

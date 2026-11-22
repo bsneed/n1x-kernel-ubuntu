@@ -165,8 +165,9 @@ nvidia_restore_wants() {
 }
 
 # dkms_all_kernels PREV: builds our NVIDIA modules (nvidia-n1x NVIDIA_VERSION) for every kernel that
-# has headers. Ubuntu's DKMS hook builds only for the running and the newest kernel. A failed
-# build for a kernel that boots is fatal: the N1x has no other display engine, so that kernel
+# has headers. 26.04's dkms (autoinstall_all_kernels=yes) builds for every kernel with headers
+# too, but this is the check that fails loudly and names the kernel. A failed build for a kernel
+# that boots is fatal: the N1x has no other display engine, so that kernel
 # (the fallback among them) would come up without a GPU driver. PREV, GRUB's default unless
 # RELEASE was made the default with --default, is named in that error.
 dkms_all_kernels() {
