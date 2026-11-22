@@ -37,6 +37,22 @@ nvidia_other_versions() {
 	done
 }
 
+# nvidia_before BRANCH DKMS REPLACED: reads installed packages as "name=version" lines and prints
+# the lines the first install records for --remove (/var/lib/n1x-kernel-ubuntu/nvidia-before):
+# the packages it replaces (the file REPLACED, one name per line, from nvidia_other_versions),
+# and BRANCH's packages that are already installed, which --remove must keep (a machine that
+# ran Ubuntu's 620 before). DKMS (ours) is never recorded.
+nvidia_before() {
+	local branch=$1 dkms=$2 replaced=$3 line name b
+	while IFS= read -r line; do
+		name=${line%%=*}
+		[[ -n $name && $name != "$dkms" ]] || continue
+		if grep -qxF "$name" "$replaced" || { b=$(nvidia_branch_of "$name") && [[ $b == "$branch" ]]; }; then
+			printf '%s\n' "$line"
+		fi
+	done
+}
+
 # nvidia_prebuilt_kernel NAME: the kernel release of a prebuilt-modules package
 # (linux-modules-nvidia-615-open-7.0.0-1026-nvidia -> 7.0.0-1026-nvidia); fails for others.
 nvidia_prebuilt_kernel() {

@@ -81,6 +81,38 @@ eq "restore removes 620 and ours" \
 eq "restore keeps a 620 package that was there before" "nvidia-kernel-common-620 nvidia-n1x-dkms-620-open" \
 	"$(printf 'nvidia-utils-620=1\nnvidia-kernel-common-620=1\nnvidia-n1x-dkms-620-open=1\n' |
 		nvidia_restore_removals 620 nvidia-n1x-dkms-620-open <(printf 'nvidia-utils-620=1\n') | paste -sd' ')"
+# The round trip on a machine that already ran Ubuntu's 620 (from -proposed): the install
+# replaces only Ubuntu's DKMS package, and --remove must give back exactly what was there.
+cat >"$T/had620" <<'PKGS'
+nvidia-driver-620-open=620.73.04-0ubuntu0.26.04.1
+nvidia-dkms-620-open=620.73.04-0ubuntu0.26.04.1
+nvidia-kernel-common-620=620.73.04-0ubuntu0.26.04.1
+nvidia-kernel-source-620-open=620.73.04-0ubuntu0.26.04.1
+nvidia-utils-620=620.73.04-0ubuntu0.26.04.1
+libnvidia-gl-620=620.73.04-0ubuntu0.26.04.1
+nvidia-firmware-620-620.73.04=620.73.04-0ubuntu0.26.04.1
+nvidia-settings=580.95.05-1
+PKGS
+nvidia_other_versions 620 nvidia-n1x-dkms-620-open <"$T/had620" >"$T/had620-replaced"
+eq "had 620: the install replaces Ubuntu's DKMS package only" nvidia-dkms-620-open "$(cat "$T/had620-replaced")"
+nvidia_before 620 nvidia-n1x-dkms-620-open "$T/had620-replaced" <"$T/had620" >"$T/had620-before"
+eq "had 620: every 620 package is recorded, at its version" "$(grep -- '-620' "$T/had620")" "$(cat "$T/had620-before")"
+# After the install: Ubuntu's DKMS package replaced by ours, the user space install.sh adds.
+{ grep -v '^nvidia-dkms-620-open=' "$T/had620"
+	printf '%s\n' nvidia-n1x-dkms-620-open=620.73.04-n1x2 nvidia-headless-no-dkms-620-open=620.73.04-0ubuntu0.26.04.1 \
+		libnvidia-decode-620=620.73.04-0ubuntu0.26.04.1; } >"$T/had620-after"
+eq "had 620: --remove takes away only what the install added" \
+	"nvidia-n1x-dkms-620-open nvidia-headless-no-dkms-620-open libnvidia-decode-620" \
+	"$(nvidia_restore_removals 620 nvidia-n1x-dkms-620-open "$T/had620-before" <"$T/had620-after" | paste -sd' ')"
+eq "had 620: --remove reinstalls Ubuntu's DKMS package and keeps the rest" \
+	"nvidia-driver-620-open nvidia-dkms-620-open nvidia-kernel-common-620 nvidia-kernel-source-620-open nvidia-utils-620 libnvidia-gl-620 nvidia-firmware-620-620.73.04" \
+	"$(cut -d= -f1 "$T/had620-before" | paste -sd' ')"
+# The usual case (615 before): only the 615 stack is recorded, never ours or unrelated packages.
+nvidia_other_versions 620 nvidia-n1x-dkms-620-open <"$T/installed" >"$T/replaced"
+eq "615 before: records what it replaces and the 620 packages there" \
+	"$(grep -vE '^(nvidia-n1x-dkms-620-open|libnvidia-container|libnvidia-egl|linux-signatures|nvidia-(container|cuda|modprobe|prime|settings|vaapi))' "$T/installed")" \
+	"$(nvidia_before 620 nvidia-n1x-dkms-620-open "$T/replaced" <"$T/installed")"
+eq "nothing installed: nothing recorded" "" "$(nvidia_before 620 nvidia-n1x-dkms-620-open /dev/null </dev/null)"
 eq "restore leaves the rest" "" \
 	"$(printf 'nvidia-settings=1\nnvidia-utils-615=1\nlibnvidia-container1=1\n' |
 		nvidia_restore_removals 620 nvidia-n1x-dkms-620-open /dev/null)"

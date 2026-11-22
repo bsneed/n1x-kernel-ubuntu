@@ -50,7 +50,8 @@ or would install a NVIDIA 620 package of another version than 620.73.04. Then it
    writes it again from the installed unit (run it after an NVIDIA update), and deletes it once
    the packaged unit no longer has the line. An override you wrote yourself is left alone.
 
-It records what it replaced in `/var/lib/n1x-kernel-ubuntu`.
+It records what it replaced, and the NVIDIA 620 packages that were already installed, in
+`/var/lib/n1x-kernel-ubuntu`.
 
 ## The kernel command line
 
@@ -65,7 +66,8 @@ It records what it replaced in `/var/lib/n1x-kernel-ubuntu`.
 This reinstalls the NVIDIA packages that were there before (by name, at the version the
 archive has now, e.g. Ubuntu's 615 and its prebuilt modules for `linux-nvidia`: the exact
 versions from back then may be gone after a security update), purges
-`nvidia-n1x-dkms-620-open`, the 620 user space and every `linux-image/headers-*-n1x*`
+`nvidia-n1x-dkms-620-open`, the 620 user space (the 620 packages that were installed before
+stay, and Ubuntu's `nvidia-dkms-620-open` comes back) and every `linux-image/headers-*-n1x*`
 package, removes the apt pin, our nvidia-persistenced override and our `pci=` options, and
 points GRUB's default back at the kernel that was running at install time (Ubuntu's
 `linux-nvidia`). The kernel command line and `GRUB_DEFAULT` go back to what they

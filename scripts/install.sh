@@ -114,7 +114,7 @@ do_install() {
 	# What --remove goes back to. Kept from the first install, so a reinstall does not overwrite it.
 	mkdir -p "$STATE"
 	if [[ ! -f $STATE/previous-kernel ]]; then
-		awk -F= 'NR == FNR { r[$0]; next } $1 in r' "$TMP/allowed" - <<<"$installed" >"$STATE/nvidia-before"
+		nvidia_before "$BRANCH" "$NV_DKMS" "$TMP/allowed" <<<"$installed" >"$STATE/nvidia-before"
 		cp -p "$GRUB_FILE" "$STATE/grub.before"
 		echo "$prev" >"$STATE/previous-kernel"
 	fi
