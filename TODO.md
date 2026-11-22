@@ -24,13 +24,12 @@ limitation into the README.
     points" x8, GICv3 illegal GSI2, arch_timer without EL2 virtual timer, ACPI `_STA` error on a
     PCIe NVMe slot), SoundWire probe deferral (-517), Cirrus dummy regulators, SMMU/MPAM/DMA-mask
     info.
-- [ ] **Ship the nvidia-persistenced override in `scripts/install.sh`** (and remove it in
-  `--remove`): anyone on N1x with NVIDIA 620 from Ubuntu hits the same ordering cycle, since the
-  NVIDIA GPU drives the panel backlight. Also report it against Ubuntu's nvidia-graphics-drivers-620.
-- [ ] **README: AppArmor differs from stock Ubuntu.** Omarchy's kernel lacks Ubuntu's AppArmor
-  SAUCE: `kernel.apparmor_restrict_unprivileged_userns` doesn't exist (unprivileged user
-  namespaces aren't restricted) and the snap `prompting-client` service fails. AppArmor itself is
-  on and loads profiles.
+- [x] **Ship the nvidia-persistenced override in `scripts/install.sh`** (2026-11-21): generated
+  from the packaged unit on every run, removed by `--remove`, checked by `check.sh`.
+- [ ] Report the nvidia-persistenced ordering cycle against Ubuntu's nvidia-graphics-drivers-620
+  (`Before=systemd-backlight@backlight:nvidia_0.service` in a unit that runs after
+  `sysinit.target`).
+- [x] **README: AppArmor differs from stock Ubuntu** (2026-11-21, Known issues).
 - [ ] **Dock hotplug is broken on the display side.** Seen 2026-11-21 on 7.3.0-n1x1 + NVIDIA 620:
   - Unplugging the dock does not fall back to the internal panel (eDP-1); the desktop stays on
     the absent external until the lid is closed and reopened.
@@ -58,6 +57,8 @@ limitation into the README.
   rerun the regression and wake tests.
 - [ ] **Long-sleep audio test.** Suspend for 30+ minutes and check the mic, headphone jack and
   tweeters. If they die, try proart-p16-linux's `optional/sleep-audio.sh`.
+- [ ] **Re-verify s2idle with patch 0010 revision 2** (`NVIDIA_N1X_REVISION=2`, scoped to
+  10de:2e03/2e06/2e13): a real suspend/resume on rtx24 with the dock, as for revision 1.
 - [ ] *(optional)* **615 without `RMSkipACPIBattCap` on AC**, for a definitive answer on
   NVIDIA/open-gpu-kernel-modules#1521. On 7.3 + 620 the override made no difference (glmark2
   terrain ~2.5 GHz / 38 W with and without it).
@@ -66,6 +67,8 @@ limitation into the README.
 
 - [ ] File the NVIDIA bug drafted in `docs/nvidia-gb20b-suspend.md`: 620.73.04 marks GB20B as
   power-management-unsupported and patch 0010 restores working s2idle.
+- [ ] Confirm whether DGX Spark's GB10 (10de:2e12) is a GB20B (`PMC_BOOT_42` as root on spark1).
+  0010 now exempts only the N1x laptop IDs either way; the answer belongs in the NVIDIA report.
 - [ ] Comment on NVIDIA/open-gpu-kernel-modules#1521 with our dock / charger / battery GPU clock
   table and the override result.
 - [ ] Comment on seankd3/asus-proart-p16-rtx-spark-linux#10 with the `_PRW` finding, and the SSDT
@@ -78,9 +81,16 @@ limitation into the README.
 
 ## Repo and CI
 
-- [ ] Check the GitHub Actions arm64 `debs` job (run 44958464353). If it can't finish within
+- [ ] Check the GitHub Actions arm64 `debs` job (runs 44958464353 on main, 44971485550 on
+  `bsneed/review-fixes`). If it can't finish within
   Actions' limits, drop or rework it and update the README's CI paragraph.
-- [ ] Work through the code-review findings (`docs/reviews/`).
+- [x] Work through the code-review findings (2026-11-21, branch `bsneed/review-fixes`; every
+  finding's resolution is in `docs/reviews/2026-11-21-initial-resolutions.md`).
+- [ ] A plain `dpkg -i` / `apt install` of `nvidia-n1x-dkms-620-open` builds the modules only for
+  the running and the newest kernel (DKMS's `common.postinst`); `install.sh` builds the rest.
+  Decide whether the postinst should build for every kernel with headers itself.
+- [ ] `install.sh` doesn't check the free space in `/boot` before installing the kernel (an
+  initramfs per kernel); Ubuntu's own kernel packages don't either.
 
 ## rtx24 housekeeping
 
