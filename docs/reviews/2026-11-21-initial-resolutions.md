@@ -33,6 +33,19 @@ build failed (the modules' build runs g++), so `nvidia-n1x-dkms-620-open` now de
 real 615 stack, nvidia-settings and nvidia-prime (GRUB and initramfs stubbed) restored
 `/etc/default/grub` byte for byte and the 615 packages at their exact versions.
 
+On rtx24 (ProArt P16, 10de:2e06, installed earlier by main's `install.sh`), 2026-11-21:
+- A re-run installed DKMS n1x2 and kept 7.3 as the default (F10).
+- The generated persistenced override's body is byte-identical to the hand-made one.
+- After the reboot, PID 1 logged no ordering cycle.
+- An s2idle `pm_test=devices` cycle succeeded (`suspend_stats` success=1, fail=0, no
+  "PM suspend notifier failed").
+- A spark1 rebuild of the installed kernel deb was flagged as differing (F11).
+- `--remove` brought back 615 at the exact versions, the user's command line and the 1026-nvidia
+  default, and left the third-party apt files and nvidia-vaapi-driver alone.
+- 1026-nvidia then booted with 615 and no PID 1 warnings.
+- The reinstall's one-time boot ran 7.3 while the saved default stayed 1026 until `--default`.
+- `check.sh` gave 20 OK, 1 WARN (no dock), 0 FAIL.
+
 Also from TODO.md on the same branch: the nvidia-persistenced ordering-cycle override
 (7a396ae), the README's AppArmor differences, the install prerequisites and the sssd FAQ
 (2fcab6f).

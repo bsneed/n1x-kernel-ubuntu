@@ -58,7 +58,8 @@ limitation into the README.
 - [ ] **Long-sleep audio test.** Suspend for 30+ minutes and check the mic, headphone jack and
   tweeters. If they die, try proart-p16-linux's `optional/sleep-audio.sh`.
 - [ ] **Re-verify s2idle with patch 0010 revision 2** (`NVIDIA_N1X_REVISION=2`, scoped to
-  10de:2e03/2e06/2e13): a real suspend/resume on rtx24 with the dock, as for revision 1.
+  10de:2e03/2e06/2e13): a real suspend/resume on rtx24 with the dock, as for revision 1. A
+  `pm_test=devices` s2idle cycle passed on 2026-11-21 (the PM notifier no longer refuses).
 - [ ] *(optional)* **615 without `RMSkipACPIBattCap` on AC**, for a definitive answer on
   NVIDIA/open-gpu-kernel-modules#1521. On 7.3 + 620 the override made no difference (glmark2
   terrain ~2.5 GHz / 38 W with and without it).
