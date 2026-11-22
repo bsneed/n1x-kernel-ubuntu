@@ -133,13 +133,14 @@ do_install() {
 	dkms_all_kernels
 	# The kernel loads the NVIDIA modules from the initramfs; DKMS 3 rebuilds none of them.
 	msg "Refreshing every initramfs"
-	update-initramfs -u -k all
+	update-initramfs -u -k all ||
+		die "update-initramfs failed (see above; is /boot full?). GRUB's default is still $prev (or $RELEASE, if you chose it with --default); fix that and run install.sh again, or go back with --remove"
 	persistenced_apply
 
 	msg "Kernel command line: USB4 PCI hotplug padding"
 	grub_default_set "$GRUB_FILE" "$(cmdline_add_pci "$(grub_default_get "$GRUB_FILE")")"
 	grep '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_FILE"
-	update-grub
+	update-grub || die "update-grub failed (see above); fix that and run install.sh again, or go back with --remove"
 	grub_verify
 	echo
 	if grub_default_is "$RELEASE"; then
@@ -206,7 +207,8 @@ do_remove() {
 	"${APT[@]}" install "${want[@]}" "${remove[@]/%/-}" ||
 		die "restoring the NVIDIA packages failed (see above); the apt pin stays, so 620 stays whole. Fix that and run --remove again"
 	rm -f "$PIN"
-	update-initramfs -u -k all
+	update-initramfs -u -k all ||
+		die "update-initramfs failed (see above; is /boot full?). The NVIDIA packages are back and GRUB boots $prev by default; fix that and run --remove again"
 	persistenced_drop
 
 	msg "Kernel command line and GRUB default"
@@ -223,9 +225,10 @@ do_remove() {
 	if [[ ${#kpkgs[@]} -gt 0 ]]; then
 		is_n1x_release "$(uname -r)" && warn "removing the running kernel $(uname -r): reboot afterwards"
 		msg "Purging ${kpkgs[*]}"
-		"${APT[@]}" purge "${kpkgs[@]}"
+		"${APT[@]}" purge "${kpkgs[@]}" ||
+			die "purging ${kpkgs[*]} failed (see above); GRUB boots $prev by default. Fix that and run --remove again"
 	fi
-	update-grub
+	update-grub || die "update-grub failed (see above); GRUB boots $prev by default. Fix that and run --remove again"
 	grub_back_to "$prev"
 	rm -rf "$STATE"
 	echo
