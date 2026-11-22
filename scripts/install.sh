@@ -209,19 +209,11 @@ do_remove() {
 	if [[ -f $STATE/grub.before ]]; then
 		# The user's own pci= values come back; see cmdline_remove_pci.
 		grub_default_set "$GRUB_FILE" "$(cmdline_remove_pci "$cmdline" "$(grub_default_get "$STATE/grub.before")")"
-		grub_restore_default "$GRUB_FILE" "$STATE/grub.before"
 	else
 		grub_default_set "$GRUB_FILE" "$(cmdline_remove_pci "$cmdline")"
 	fi
-	grep -E '^(GRUB_DEFAULT|GRUB_CMDLINE_LINUX_DEFAULT)=' "$GRUB_FILE"
-	if [[ ${#kpkgs[@]} -gt 0 ]]; then
-		is_n1x_release "$(uname -r)" && warn "removing the running kernel $(uname -r): reboot afterwards"
-		msg "Purging ${kpkgs[*]}"
-		"${APT[@]}" purge "${kpkgs[@]}" ||
-			die "purging ${kpkgs[*]} failed (see above); GRUB boots $prev by default. Fix that and run --remove again"
-	fi
-	update-grub || die "update-grub failed (see above); GRUB boots $prev by default. Fix that and run --remove again"
-	grub_back_to "$prev"
+	grep '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_FILE" || true
+	remove_kernels "$prev" "$STATE/grub.before" "${kpkgs[@]}"
 	rm -rf "$STATE"
 	echo
 	echo "Removed. GRUB boots $prev by default again; reboot if you ran the N1x kernel."

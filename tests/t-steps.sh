@@ -124,4 +124,55 @@ echo old >"$PIN"
 eq "restore: no GRUB entry for the old kernel stops before the pin and apt" "1|grub-editenv unset next_entry" \
 	"$(steps restore_packages 7.0.0-1020-nvidia "$T/steps-new-pin" install nvidia-utils-615)"
 eq "restore: the pin in /etc is unchanged then (H4)" old "$(cat "$PIN")"
+
+# --- the end of --remove: GRUB_DEFAULT goes back only after the purge (H2) -------------------------
+# Stock GRUB_DEFAULT=0 before the install; saved_entry already points at the old kernel.
+rm -f "$PIN"
+printf 'GRUB_DEFAULT=0\nGRUB_TIMEOUT=5\n' >"$T/steps-grub.before"
+kp=(linux-image-7.3.0-n1x1 linux-headers-7.3.0-n1x1)
+printf 'GRUB_DEFAULT=saved\nGRUB_TIMEOUT=5\n' >"$GRUB_FILE"
+eq "remove kernels: purge with GRUB_DEFAULT=saved, then update-grub with it back, then the old kernel" \
+	"0|apt-get -y purge ${kp[*]} [GRUB_DEFAULT=saved 7.0.0-1026-nvidia pin:]|update-grub|grub-editenv unset next_entry|grub-set-default $(id_of 7.0.0-1026-nvidia)" \
+	"$(steps remove_kernels 7.0.0-1026-nvidia "$T/steps-grub.before" "${kp[@]}")"
+eq "remove kernels: GRUB_DEFAULT is what it was" "GRUB_DEFAULT=0|GRUB_TIMEOUT=5" "$(paste -sd'|' "$GRUB_FILE")"
+printf 'GRUB_DEFAULT=saved\nGRUB_TIMEOUT=5\n' >"$GRUB_FILE"
+touch "$T/steps-apt-fails"
+eq "remove kernels: a failed purge stops before update-grub" \
+	"1|apt-get -y purge ${kp[*]} [GRUB_DEFAULT=saved 7.0.0-1026-nvidia pin:]" \
+	"$(steps remove_kernels 7.0.0-1026-nvidia "$T/steps-grub.before" "${kp[@]}")"
+eq "remove kernels: a failed purge leaves GRUB_DEFAULT=saved, so no update-grub can boot 7.3" \
+	"GRUB_DEFAULT=saved|GRUB_TIMEOUT=5" "$(paste -sd'|' "$GRUB_FILE")"
+eq "remove kernels: says the purge failed and what boots" 1 \
+	"$(grep -c "^ERROR: purging ${kp[*]} failed (see above); GRUB boots 7.0.0-1026-nvidia by default" "$T/steps-err")"
+rm "$T/steps-apt-fails"
+eq "remove kernels: nothing to purge" \
+	"0|update-grub|grub-editenv unset next_entry|grub-set-default $(id_of 7.0.0-1026-nvidia)" \
+	"$(steps remove_kernels 7.0.0-1026-nvidia "$T/steps-grub.before")"
+eq "remove kernels: nothing to purge, GRUB_DEFAULT back too" "GRUB_DEFAULT=0" "$(grep '^GRUB_DEFAULT=' "$GRUB_FILE")"
+printf 'GRUB_DEFAULT=saved\n' >"$GRUB_FILE"
+eq "remove kernels: no copy from before, GRUB_DEFAULT stays" \
+	"0|update-grub|grub-editenv unset next_entry|grub-set-default $(id_of 7.0.0-1026-nvidia)|GRUB_DEFAULT=saved" \
+	"$(steps remove_kernels 7.0.0-1026-nvidia "$T/steps-none")|$(cat "$GRUB_FILE")"
+printf 'GRUB_TIMEOUT=5\n' >"$T/steps-grub.before"
+printf 'GRUB_DEFAULT=saved\nGRUB_TIMEOUT=5\n' >"$GRUB_FILE"
+eq "remove kernels: GRUB_DEFAULT unset before, unset again, and it goes on" "0|GRUB_TIMEOUT=5" \
+	"$(steps remove_kernels 7.0.0-1026-nvidia "$T/steps-grub.before" | cut -d'|' -f1)|$(paste -sd'|' "$GRUB_FILE")"
+printf 'export GRUB_DEFAULT=0\n' >"$T/steps-grub.before"
+printf 'GRUB_DEFAULT=saved\n' >"$GRUB_FILE"
+eq "remove kernels: a copy it can't read stops before update-grub, with GRUB_DEFAULT=saved" "1||GRUB_DEFAULT=saved" \
+	"$(steps remove_kernels 7.0.0-1026-nvidia "$T/steps-grub.before")|$(cat "$GRUB_FILE")"
+eq "remove kernels: says GRUB_DEFAULT can't go back" 1 \
+	"$(grep -c "^ERROR: cannot put GRUB_DEFAULT back from $T/steps-grub.before (see above); GRUB boots 7.0.0-1026-nvidia by default" "$T/steps-err")"
+printf 'GRUB_DEFAULT=saved\n' >"$GRUB_FILE"
+touch "$T/steps-update-grub-fails"
+eq "remove kernels: a failed update-grub stops" "1|update-grub" "$(steps remove_kernels 7.0.0-1026-nvidia "$T/steps-none")"
+eq "remove kernels: says update-grub failed and what boots" 1 \
+	"$(grep -c '^ERROR: update-grub failed (see above); GRUB boots 7.0.0-1026-nvidia by default' "$T/steps-err")"
+rm "$T/steps-update-grub-fails"
+# shellcheck disable=SC2317,SC2329 # called by remove_kernels (SC2317 before shellcheck 0.10)
+uname() { echo 7.3.0-n1x1; }
+eq "remove kernels: warns when it purges the running kernel" 1 \
+	"$(steps remove_kernels 7.0.0-1026-nvidia "$T/steps-none" "${kp[@]}" >/dev/null; grep -c '^WARNING: removing the running kernel 7.3.0-n1x1' "$T/steps-err")"
+unset -f uname
+unset kp
 unset -f mkcfg id_of update-grub grub-editenv grub-set-default steps apt-get

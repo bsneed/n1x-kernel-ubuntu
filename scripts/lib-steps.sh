@@ -116,6 +116,30 @@ restore_packages() {
 	rm -f "$PIN"
 }
 
+# remove_kernels PREV BEFORE KPKG...: the end of --remove. Purges our kernel packages KPKG, and
+# only then puts GRUB_DEFAULT back from BEFORE (the copy of /etc/default/grub from the first
+# install, if there is one), runs update-grub and makes PREV the default. With stock
+# GRUB_DEFAULT=0 back while 7.3 is still installed, any update-grub before a re-run (a kernel
+# update, apt -f install after a failed purge) would make 7.3, the newest kernel, the default
+# again, now without an NVIDIA driver (H2). The purge's own update-grub still renders saved_entry.
+remove_kernels() {
+	local prev=$1 before=$2
+	shift 2
+	if [[ $# -gt 0 ]]; then
+		is_n1x_release "$(uname -r)" && warn "removing the running kernel $(uname -r): reboot afterwards"
+		msg "Purging $*"
+		"${APT[@]}" purge "$@" ||
+			die "purging $* failed (see above); GRUB boots $prev by default. Fix that and run --remove again"
+	fi
+	if [[ -f $before ]]; then
+		grub_restore_default "$GRUB_FILE" "$before" ||
+			die "cannot put GRUB_DEFAULT back from $before (see above); GRUB boots $prev by default. Fix that and run --remove again"
+	fi
+	grep '^GRUB_DEFAULT=' "$GRUB_FILE" || true
+	update-grub || die "update-grub failed (see above); GRUB boots $prev by default. Fix that and run --remove again"
+	grub_back_to "$prev"
+}
+
 # Writes (or refreshes) the nvidia-persistenced override when the packaged unit has the
 # ordering cycle, and drops ours when it no longer does. An override someone else wrote stays.
 persistenced_apply() {
