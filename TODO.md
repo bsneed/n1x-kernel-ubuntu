@@ -11,18 +11,26 @@ limitation into the README.
   and cable run 5120x2160 at 120 Hz on a Mac, so the limit is on the N1x/Linux side. Check whether
   DSC is enabled through the tunnel, the tunnel's bandwidth allocation (link rate and lanes), and
   the driver's mode list against the EDID/DisplayID.
-- [ ] **Red and orange messages scroll past at boot.** Go through every error and warning, decide
-  which are real, and fix or quiet the harmless ones. Seen in the journal so far:
-  - ACPI errors from the EC lid method (`\_SB.EC0.RWEC` -> `GLID` -> `LID0._LID`, `AE_ERROR`),
-    repeated during boot.
-  - `GICv3: [Firmware Bug]: Illegal GSI2 translation request`.
-  - About 15x `mtk_sdw_mc: failed to parse sdw devices/endpoints: -517` (probe deferral; audio
-    works).
-  - A PCI BAR message.
-  - On the stock 7.0 kernel only: systemd timing out on `/dev/tpm0` (about 1.5 min of boot) and
-    `nouveau: unknown chipset`.
-
-  `quiet` still prints error-level messages and `console=tty0` sends them to the screen.
+- [x] **Red and orange messages at boot** (2026-11-21). The coloured text was systemd's status
+  lines, not the kernel (`quiet` keeps kernel messages off the console). Fixed on rtx24; after a
+  reboot PID 1 logs no warnings:
+  - Red `Dependency failed for sssd-*.socket` x6: sssd ships enabled with no `/etc/sssd/sssd.conf`.
+    Fix: `systemctl disable sssd-{nss,autofs,pac,pam,ssh,sudo}.socket`. Plain Ubuntu, not ours.
+  - Orange `sysinit.target: Found ordering cycle`: Ubuntu's `nvidia-compute-utils-620` orders
+    `nvidia-persistenced` (after `sysinit.target`) `Before=systemd-backlight@backlight:nvidia_0`
+    (before it). Fix: `/etc/systemd/system/nvidia-persistenced.service`, the packaged unit minus
+    that line (an empty `Before=` drop-in can't reset the list).
+  - Kernel side, journal only, all harmless: BIOS 300 firmware bugs (ACPI thermal "No valid trip
+    points" x8, GICv3 illegal GSI2, arch_timer without EL2 virtual timer, ACPI `_STA` error on a
+    PCIe NVMe slot), SoundWire probe deferral (-517), Cirrus dummy regulators, SMMU/MPAM/DMA-mask
+    info.
+- [ ] **Ship the nvidia-persistenced override in `scripts/install.sh`** (and remove it in
+  `--remove`): anyone on N1x with NVIDIA 620 from Ubuntu hits the same ordering cycle, since the
+  NVIDIA GPU drives the panel backlight. Also report it against Ubuntu's nvidia-graphics-drivers-620.
+- [ ] **README: AppArmor differs from stock Ubuntu.** Omarchy's kernel lacks Ubuntu's AppArmor
+  SAUCE: `kernel.apparmor_restrict_unprivileged_userns` doesn't exist (unprivileged user
+  namespaces aren't restricted) and the snap `prompting-client` service fails. AppArmor itself is
+  on and loads profiles.
 - [ ] **Dock hotplug is broken on the display side.** Seen 2026-11-21 on 7.3.0-n1x1 + NVIDIA 620:
   - Unplugging the dock does not fall back to the internal panel (eDP-1); the desktop stays on
     the absent external until the lid is closed and reopened.
@@ -31,6 +39,9 @@ limitation into the README.
     / `nvKmsKapiHandleEventQueueChange`) that glitched GNOME. Back on the original port the Dell
     came up again. dmesg snapshot: rtx24 `/home/bsneed/work/replug-1628/`.
   - The dock's USB and 10GbE re-enumerate fine; it is only DisplayPort.
+  - About six minutes after the replug, `NetworkManager`, `tailscaled` and kernel workers hung
+    for over two minutes on a mutex held by `irq/315-pciehp` (PCIe hotplug), so the hotplug path
+    can stall networking too.
   - See the DP 120 Hz report (`/Users/bsneed/work/n1x-kernel-ubuntu-reports/dp-120hz.md`) for
     which host router / DP IN adapter each port uses.
 
