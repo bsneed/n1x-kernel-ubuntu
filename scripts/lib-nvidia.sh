@@ -99,7 +99,8 @@ nvidia_pin_text() {
 # Before= systemd-backlight@backlight:nvidia_0 (which runs before it): an ordering cycle that
 # systemd breaks at every boot on machines whose panel backlight is the NVIDIA GPU's, as on the
 # N1x. A drop-in can't remove an entry from Before= (an empty Before= doesn't reset it), so the
-# override is a full copy of the packaged unit without that line.
+# override is a full copy of the packaged unit without that line. Reported to Ubuntu as
+# LP #2175497 (https://bugs.launchpad.net/bugs/2175497); drop this once that is fixed.
 # shellcheck disable=SC2034 # used by install.sh and check.sh
 PERSISTENCED_UNIT=/usr/lib/systemd/system/nvidia-persistenced.service
 PERSISTENCED_OVERRIDE=/etc/systemd/system/nvidia-persistenced.service

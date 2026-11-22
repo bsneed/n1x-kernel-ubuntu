@@ -34,7 +34,9 @@ limitation into the README.
     info.
 - [x] **Ship the nvidia-persistenced override in `scripts/install.sh`** (2026-11-21): generated
   from the packaged unit on every run, removed by `--remove`, checked by `check.sh`.
-- [x] Reported the nvidia-persistenced ordering cycle to Ubuntu: LP #2175497 (2026-11-21).
+- [x] Report the nvidia-persistenced ordering cycle against Ubuntu's nvidia-graphics-drivers-620
+  (2026-11-21, [LP #2175497](https://bugs.launchpad.net/bugs/2175497)). Drop the override from
+  `install.sh` once a fixed `nvidia-compute-utils-620` is published.
 - [x] **README: AppArmor differs from stock Ubuntu** (2026-11-21, Known issues).
 - [ ] *(moot with HDMI)* **Dock hotplug with a display on the USB4 tunnel.** Seen 2026-11-21/22 on
   7.3 + NVIDIA 620, only when the Dell is carried over the tunnel:
@@ -47,6 +49,14 @@ limitation into the README.
     (`__nv_drm_handle_flip_event`); dmesg in rtx24 `/home/bsneed/work/replug-1628/`.
   - Once, ~6 min after a replug, NetworkManager, tailscaled and kernel workers hung >2 min on a
     mutex held by `irq/315-pciehp`. Worth watching for with the dock carrying only USB/Ethernet.
+
+## Kernel
+
+- [ ] **Move the base to 7.3.2 or newer and drop `patches/ubuntu/0001`** (the MT7925 reset-panic
+  fix, upstream c182bfe944eb, in 7.3.2). Omarchy's recipe pins kernel.org 7.3; either wait for
+  it to move, or take the 7.3.x tarball ourselves (build.sh checks that the recipe's tarball is
+  `sources`' one, so that is a build.sh change). With 0001 still there, the build fails on it as
+  already applied, which is the reminder.
 
 ## Power and suspend
 
@@ -80,6 +90,9 @@ limitation into the README.
   result if there is one.
 - [ ] Open a PR to LeonMarzollDev/proart-p16-linux from `bsneed/install-lsp-plugins` (installs
   `lsp-plugins-lv2`, which PipeWire needs for the speaker crossover).
+- [ ] Follow Ubuntu's [LP #2175498](https://bugs.launchpad.net/bugs/2175498)
+  (gnome-shell-ubuntu-extensions, filed 2026-11-21): the Show Apps grid is empty after
+  50.26.04.8ubuntu. Plain Ubuntu, not ours.
 - [ ] Tell Leon how his DKMS modules fare on 7.3: proart-battery and proart-audio still needed;
   hid-asus-proart replaces the kernel's hid-asus but lacks Omarchy's 1104 (backlight off in sleep)
   and 1109 (Copilot key).
@@ -96,6 +109,9 @@ limitation into the README.
   (3.2.2-1ubuntu1) ships `autoinstall_all_kernels="yes"`, so DKMS's `common.postinst` already
   builds for every kernel with headers. `install.sh`'s `dkms_all_kernels` stays as the check
   that fails loudly.
+- [ ] The DKMS package records the commit it was built from (`SOURCE`), so every rebuild from
+  a new commit needs `NVIDIA_N1X_REVISION` raised, even when the modules are unchanged (it went
+  to 3 for kernel revision 2 alone). Decide whether the commit belongs in that package.
 - [ ] `install.sh` doesn't check the free space in `/boot` before installing the kernel (an
   initramfs per kernel); Ubuntu's own kernel packages don't either.
 - [ ] *(optional)* `--remove` removes `nvidia-n1x-dkms-620-open` and the 620 user space
