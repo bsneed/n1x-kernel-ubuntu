@@ -11,7 +11,9 @@
 #     replaces the packages of other NVIDIA driver versions (615) and nothing else. An apt pin
 #     keeps the user space at that upstream version, so `apt upgrade` can't split it from the
 #     modules (/etc/apt/preferences.d/n1x-kernel-ubuntu-nvidia);
-#  3. the USB4 PCI hotplug padding (pci=hpbussize=...) in GRUB_CMDLINE_LINUX_DEFAULT.
+#  3. the USB4 PCI hotplug padding (pci=hpbussize=...) in GRUB_CMDLINE_LINUX_DEFAULT;
+#  4. an nvidia-persistenced unit without Ubuntu's boot-time ordering cycle, when needed
+#     (/etc/systemd/system/nvidia-persistenced.service).
 # Every apt transaction is simulated first; the install stops before changing anything if apt
 # can't do it or would remove something else.
 # GRUB's default stays the kernel you run now; the new kernel boots once on the next reboot
@@ -122,6 +124,7 @@ do_install() {
 	# The kernel loads the NVIDIA modules from the initramfs; DKMS 3 rebuilds none of them.
 	msg "Refreshing every initramfs"
 	update-initramfs -u -k all
+	persistenced_apply
 
 	msg "Kernel command line: USB4 PCI hotplug padding"
 	grub_default_set "$GRUB_FILE" "$(cmdline_add_pci "$(grub_default_get "$GRUB_FILE")")"
@@ -184,6 +187,7 @@ do_remove() {
 		die "restoring the NVIDIA packages failed (see above); the apt pin stays, so 620 stays whole. Fix that and run --remove again"
 	rm -f "$PIN"
 	update-initramfs -u -k all
+	persistenced_drop
 
 	msg "Kernel command line and GRUB default"
 	local cmdline

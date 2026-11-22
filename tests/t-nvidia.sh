@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# Tests of lib-nvidia.sh: NVIDIA package selection and the apt pin.
+# Tests of lib-nvidia.sh: NVIDIA package selection, the apt pin and the persistenced override.
 # Sourced by tests/run.sh, which defines eq, fails, $T, $P and $OSI.
 # shellcheck shell=bash
 . scripts/lib-nvidia.sh
@@ -102,3 +102,21 @@ for p in nvidia-utils-615 nvidia-settings libnvidia-container1 nvidia-utils-6200
 	eq "pin leaves $p" no "$([[ $p =~ $re ]] && echo yes || echo no)"
 done
 eq "prebuilt kernel of a server-open build" 7.0.0-44-generic "$(nvidia_prebuilt_kernel linux-modules-nvidia-580-server-open-7.0.0-44-generic)"
+
+# --- nvidia-persistenced override (fixture: nvidia-compute-utils-620 620.73.04's unit) ----------
+U620=tests/fixtures/nvidia-persistenced-620.service
+persistenced_override "$U620" >"$T/persistenced"
+eq "override drops the Before= line" "" "$(grep -F 'Before=' "$T/persistenced" | grep -v '^#')"
+eq "override is the unit otherwise" "$(grep -vxF "$PERSISTENCED_CYCLE" "$U620")" "$(grep -v '^#' "$T/persistenced")"
+eq "override keeps the trailing blank line" "$(tail -c 2 "$U620" | od -An -c)" "$(tail -c 2 "$T/persistenced" | od -An -c)"
+eq "override says what it is" "$PERSISTENCED_MARK (scripts/install.sh) from $U620:" "$(head -1 "$T/persistenced")"
+eq "override says how to remove it" 1 "$(grep -c '^# Remove by hand: sudo rm /etc/systemd/system/nvidia-persistenced.service' "$T/persistenced")"
+eq "override is ours" 0 "$(persistenced_is_ours "$T/persistenced"; echo $?)"
+eq "the packaged unit is not ours" 1 "$(persistenced_is_ours "$U620"; echo $?)"
+eq "a missing file is not ours" 1 "$(persistenced_is_ours "$T/none"; echo $?)"
+grep -vxF "$PERSISTENCED_CYCLE" "$U620" >"$T/fixed.service"
+fails "no override for a unit without the cycle" persistenced_override "$T/fixed.service"
+eq "no output for a unit without the cycle" "" "$(persistenced_override "$T/fixed.service" 2>&1)"
+fails "no override without the unit" persistenced_override "$T/none.service"
+sed "s/^$PERSISTENCED_CYCLE\$/Before=systemd-backlight@backlight:nvidia_0.service other.service/" "$U620" >"$T/two.service"
+fails "no override when the line differs" persistenced_override "$T/two.service"

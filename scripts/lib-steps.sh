@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # The steps of scripts/install.sh that change the system: the temporary -proposed source,
-# checked apt transactions, GRUB. Sourced by install.sh,
+# checked apt transactions, GRUB, the nvidia-persistenced override. Sourced by install.sh,
 # whose settings (PROPOSED_*, GRUB_*, RELEASE, TMP) they use.
 # shellcheck shell=bash
 
@@ -62,3 +62,29 @@ grub_verify() {
 
 # saved_entry in grubenv: GRUB's default when GRUB_DEFAULT=saved.
 grub_saved_entry() { grub-editenv - list 2>/dev/null | sed -n 's/^saved_entry=//p'; }
+
+# Writes (or refreshes) the nvidia-persistenced override when the packaged unit has the
+# ordering cycle, and drops ours when it no longer does. An override someone else wrote stays.
+persistenced_apply() {
+	if ! persistenced_override "$PERSISTENCED_UNIT" >"$TMP/persistenced"; then
+		persistenced_drop
+		return 0
+	fi
+	if [[ -e $PERSISTENCED_OVERRIDE ]] && ! persistenced_is_ours "$PERSISTENCED_OVERRIDE"; then
+		warn "$PERSISTENCED_OVERRIDE was not written by install.sh, so it stays as it is. If it is the packaged unit without $PERSISTENCED_CYCLE, delete it and run install.sh again, which then keeps it in step with the package."
+		return 0
+	fi
+	cmp -s "$TMP/persistenced" "$PERSISTENCED_OVERRIDE" && return 0
+	cp "$TMP/persistenced" "$PERSISTENCED_OVERRIDE.n1x"
+	chmod 644 "$PERSISTENCED_OVERRIDE.n1x"
+	mv "$PERSISTENCED_OVERRIDE.n1x" "$PERSISTENCED_OVERRIDE"
+	systemctl daemon-reload
+	msg "Wrote $PERSISTENCED_OVERRIDE: $PERSISTENCED_UNIT without its ordering cycle ($PERSISTENCED_CYCLE)"
+}
+
+persistenced_drop() {
+	persistenced_is_ours "$PERSISTENCED_OVERRIDE" || return 0
+	rm -f "$PERSISTENCED_OVERRIDE"
+	systemctl daemon-reload
+	msg "Removed $PERSISTENCED_OVERRIDE"
+}

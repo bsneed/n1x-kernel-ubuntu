@@ -3,14 +3,15 @@
 # n1x-kernel-ubuntu - health check of the N1x kernel, USB4 and NVIDIA. Read-only, runs as your user.
 #
 # Why: one place to see that the running kernel is ours, the USB4 host routers are bound,
-# a dock is enumerated and authorized, the NVIDIA modules match the user space, and the apt
-# pin scripts/install.sh wrote holds it.
+# a dock is enumerated and authorized, the NVIDIA modules match the user space, and what
+# scripts/install.sh set up (apt pin, nvidia-persistenced override) is in place.
 # Prints one line per item: OK, WARN or FAIL (as proart-p16-linux's tools/check.sh does).
 # Remove: nothing to remove; it only reads.
 # Run with: bash scripts/check.sh
 set -uo pipefail
 . "$(dirname "$0")/lib.sh"
 . "$(dirname "$0")/grub.sh"
+. "$(dirname "$0")/lib-nvidia.sh"
 load_sources
 RELEASE=$(kernel_release "$KERNEL_VERSION" "$N1X_REVISION")
 
@@ -106,6 +107,22 @@ nodkms=$(for b in /lib/modules/*/build; do
 done | tr '\n' ' ')
 if [[ -z $nodkms ]]; then OK "NVIDIA modules built for every kernel with headers"
 else WARN "no NVIDIA modules for: $nodkms"; fi
+
+if [[ -r $PERSISTENCED_UNIT ]]; then
+	if ! grep -qxF "$PERSISTENCED_CYCLE" "$PERSISTENCED_UNIT"; then
+		OK "nvidia-persistenced: the packaged unit has no backlight ordering cycle"
+	elif persistenced_is_ours "$PERSISTENCED_OVERRIDE"; then
+		if cmp -s <(persistenced_override "$PERSISTENCED_UNIT") "$PERSISTENCED_OVERRIDE"; then
+			OK "nvidia-persistenced override without the ordering cycle ($PERSISTENCED_OVERRIDE)"
+		else
+			WARN "nvidia-persistenced override is older than the packaged unit (sudo bash scripts/install.sh)"
+		fi
+	elif [[ -f $PERSISTENCED_OVERRIDE ]] && ! grep -qxF "$PERSISTENCED_CYCLE" "$PERSISTENCED_OVERRIDE"; then
+		OK "nvidia-persistenced: your own override, without the ordering cycle ($PERSISTENCED_OVERRIDE)"
+	else
+		WARN "nvidia-persistenced has a boot-time ordering cycle ($PERSISTENCED_CYCLE; sudo bash scripts/install.sh)"
+	fi
+fi
 
 echo "== Displays"
 for c in /sys/class/drm/card*-*; do

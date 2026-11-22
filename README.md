@@ -181,6 +181,14 @@ or would install a NVIDIA 620 package of another version than 620.73.04. Then it
    newest kernel whatever `grub-set-default` says), so `install.sh` sets it and `--remove`
    puts the old value back. After `--default`, running `install.sh` again keeps the new kernel
    as the default.
+6. Writes `/etc/systemd/system/nvidia-persistenced.service` when Ubuntu's unit needs it.
+   `nvidia-compute-utils-620`'s unit says `Before=systemd-backlight@backlight:nvidia_0.service`
+   but runs after `sysinit.target`, which that backlight unit runs before: on the N1x, whose
+   panel backlight is the NVIDIA GPU's, systemd reports `Found ordering cycle` at every boot
+   and drops a job to break it. A drop-in can't take an entry out of `Before=`, so the file is
+   the packaged unit without that line, with a header saying so. Every run of `install.sh`
+   writes it again from the installed unit (run it after an NVIDIA update), and deletes it once
+   the packaged unit no longer has the line. An override you wrote yourself is left alone.
 
 It records what it replaced in `/var/lib/n1x-kernel-ubuntu`.
 
@@ -237,7 +245,7 @@ This reinstalls the NVIDIA packages that were there before (by name, at the vers
 archive has now, e.g. Ubuntu's 615 and its prebuilt modules for `linux-nvidia`: the exact
 versions from back then may be gone after a security update), purges
 `nvidia-n1x-dkms-620-open`, the 620 user space and every `linux-image/headers-*-n1x*`
-package, removes the apt pin and our `pci=` options, and points GRUB's default back at the kernel that was running at install time
+package, removes the apt pin, our nvidia-persistenced override and our `pci=` options, and points GRUB's default back at the kernel that was running at install time
 (Ubuntu's `linux-nvidia`). The kernel command line and `GRUB_DEFAULT` go back to what they
 were before the first install (a `pci=` value of yours that the install replaced comes back;
 an option you had already stays); a later edit of your own to either is kept. It simulates
@@ -265,7 +273,7 @@ failure leaves a consistent 620 install that `--remove` can be run on again.
 ## Tests
 
 ```sh
-bash tests/run.sh                # version parsing, cmdline edits, GRUB entries, config check
+bash tests/run.sh                # the helpers in scripts/: tests/t-*.sh
 shellcheck scripts/*.sh tests/*.sh nvidia-dkms/postinst nvidia-dkms/prerm nvidia-dkms/postrm
 ```
 
