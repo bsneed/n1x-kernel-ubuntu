@@ -141,20 +141,25 @@ fallback_kernel() {
 	fi
 }
 
-# nvidia_restore_wants BEFORE: the names in BEFORE ("name=version" lines, nvidia-before) that
-# --remove reinstalls: all but the prebuilt modules of a kernel that is no longer installed
-# (linux-modules-nvidia-615-open-7.0.0-1026-nvidia once apt has removed 1026), which apt could
-# not install without that kernel. The metapackage (linux-modules-nvidia-615-open-nvidia)
-# brings the modules of the current one.
+# nvidia_restore_wants BEFORE PREV: the names in BEFORE ("name=version" lines, nvidia-before)
+# that --remove reinstalls, each once. The prebuilt modules of a kernel that is no longer
+# installed (linux-modules-nvidia-615-open-7.0.0-1026-nvidia once apt has removed 1026), which
+# apt could not install without that kernel, become the same package for PREV, the kernel
+# --remove goes back to (fallback_kernel). proart-p16-linux installs them by name and never the
+# metapackage (linux-modules-nvidia-615-open-nvidia), so nothing else would bring PREV's back.
+# If the archive has no such package for PREV, --remove's simulation stops before any change.
 nvidia_restore_wants() {
-	local name k
+	local prev=$2 name k
+	local -A seen=()
 	while IFS= read -r name; do
 		name=${name%%=*}
 		[[ -n $name ]] || continue
 		if k=$(nvidia_prebuilt_kernel "$name") && ! kernel_installed "$k"; then
-			warn "not reinstalling $name: kernel $k is no longer installed"
-			continue
+			warn "kernel $k is no longer installed: installing ${name%"$k"}$prev for $prev instead of $name"
+			name=${name%"$k"}$prev
 		fi
+		[[ -z ${seen[$name]:-} ]] || continue
+		seen[$name]=1
 		printf '%s\n' "$name"
 	done <"$1"
 }

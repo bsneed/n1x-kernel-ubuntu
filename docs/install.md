@@ -70,7 +70,9 @@ It records what it replaced, and the NVIDIA 620 packages that were already insta
 This reinstalls the NVIDIA packages that were there before (by name, at the version the
 archive has now, e.g. Ubuntu's 615 and its prebuilt modules for `linux-nvidia`: the exact
 versions from back then may be gone after a security update; prebuilt modules for a kernel
-that has been removed since are left out, and the metapackage brings the current one's), purges
+that has been removed since are installed for the kernel it goes back to instead, since
+proart-p16-linux installs them by kernel, without the metapackage, and if the archive has none
+for that kernel its simulation stops before anything changes), purges
 `nvidia-n1x-dkms-620-open`, the 620 user space (the 620 packages that were installed before
 stay, and Ubuntu's `nvidia-dkms-620-open` comes back) and every `linux-image/headers-*-n1x*`
 package, removes the apt pin, our nvidia-persistenced override and our `pci=` options, and

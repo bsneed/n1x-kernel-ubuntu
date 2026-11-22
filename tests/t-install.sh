@@ -164,16 +164,37 @@ linux-modules-nvidia-615-open-7.0.0-1030-nvidia=7.0.0-1030.31
 nvidia-utils-615=615.71.09-0ubuntu0.26.04.2
 
 PKGS
-eq "restore wants: not the modules of a removed kernel; the metapackage brings the new ones" \
-	"linux-modules-nvidia-615-open-nvidia linux-modules-nvidia-615-open-7.0.0-1030-nvidia nvidia-utils-615" \
-	"$(nvidia_restore_wants "$T/fb-before" 2>/dev/null | paste -sd' ')"
-eq "restore wants: says what it leaves out" \
-	"WARNING: not reinstalling linux-modules-nvidia-615-open-7.0.0-1026-nvidia: kernel 7.0.0-1026-nvidia is no longer installed|WARNING: not reinstalling linux-objects-nvidia-615-open-7.0.0-1026-nvidia: kernel 7.0.0-1026-nvidia is no longer installed" \
-	"$(nvidia_restore_wants "$T/fb-before" 2>&1 >/dev/null | paste -sd'|')"
+eq "restore wants: the modules of a removed kernel become the fallback kernel's, once" \
+	"linux-modules-nvidia-615-open-7.0.0-1030-nvidia linux-objects-nvidia-615-open-7.0.0-1030-nvidia linux-modules-nvidia-615-open-nvidia nvidia-utils-615" \
+	"$(nvidia_restore_wants "$T/fb-before" 7.0.0-1030-nvidia 2>/dev/null | paste -sd' ')"
+eq "restore wants: says what it replaces" \
+	"WARNING: kernel 7.0.0-1026-nvidia is no longer installed: installing linux-modules-nvidia-615-open-7.0.0-1030-nvidia for 7.0.0-1030-nvidia instead of linux-modules-nvidia-615-open-7.0.0-1026-nvidia|WARNING: kernel 7.0.0-1026-nvidia is no longer installed: installing linux-objects-nvidia-615-open-7.0.0-1030-nvidia for 7.0.0-1030-nvidia instead of linux-objects-nvidia-615-open-7.0.0-1026-nvidia" \
+	"$(nvidia_restore_wants "$T/fb-before" 7.0.0-1030-nvidia 2>&1 >/dev/null | paste -sd'|')"
+# proart-p16-linux installs linux-modules-nvidia-615-open-$KREL by name and never the metapackage:
+# nothing else would bring the fallback kernel's NVIDIA driver back (H1).
+cat >"$T/p16-before" <<'PKGS'
+linux-modules-nvidia-615-open-7.0.0-1026-nvidia=7.0.0-1026.27
+linux-objects-nvidia-615-open-7.0.0-1026-nvidia=7.0.0-1026.27
+nvidia-headless-no-dkms-615-open=615.71.09-0ubuntu0.26.04.2
+nvidia-utils-615=615.71.09-0ubuntu0.26.04.2
+PKGS
+eq "restore wants, proart-p16-linux (no metapackage): the fallback kernel gets its prebuilt modules" \
+	"linux-modules-nvidia-615-open-7.0.0-1030-nvidia linux-objects-nvidia-615-open-7.0.0-1030-nvidia nvidia-headless-no-dkms-615-open nvidia-utils-615" \
+	"$(nvidia_restore_wants "$T/p16-before" 7.0.0-1030-nvidia 2>/dev/null | paste -sd' ')"
+eq "restore wants, proart-p16-linux: nothing for the removed kernel" 0 \
+	"$(nvidia_restore_wants "$T/p16-before" 7.0.0-1030-nvidia 2>/dev/null | grep -c 1026)"
+eq "restore wants: a -64k fallback kernel gets the -64k modules" \
+	"linux-modules-nvidia-615-open-7.0.0-1030-nvidia-64k linux-objects-nvidia-615-open-7.0.0-1030-nvidia-64k nvidia-headless-no-dkms-615-open nvidia-utils-615" \
+	"$(nvidia_restore_wants "$T/p16-before" 7.0.0-1030-nvidia-64k 2>/dev/null | paste -sd' ')"
+printf 'linux-modules-nvidia-615-server-open-7.0.0-1026-nvidia=7.0.0-1026.27\n' >"$T/srv-before"
+eq "restore wants: the -server modules stay -server" "linux-modules-nvidia-615-server-open-7.0.0-1030-nvidia" \
+	"$(nvidia_restore_wants "$T/srv-before" 7.0.0-1030-nvidia 2>/dev/null)"
 mkk 7.0.0-1026-nvidia
-eq "restore wants: everything while the kernel is installed" \
-	"$(cut -d= -f1 "$T/fb-before" | grep . | paste -sd' ')" "$(nvidia_restore_wants "$T/fb-before" 2>&1 | paste -sd' ')"
-eq "restore wants: nothing recorded" "" "$(nvidia_restore_wants /dev/null)"
+eq "restore wants: everything, unchanged, while the kernel is installed" \
+	"$(cut -d= -f1 "$T/fb-before" | grep . | paste -sd' ')" "$(nvidia_restore_wants "$T/fb-before" 7.0.0-1026-nvidia 2>&1 | paste -sd' ')"
+eq "restore wants: the recorded kernel's modules while it is installed, whatever the fallback" \
+	"$(cut -d= -f1 "$T/p16-before" | paste -sd' ')" "$(nvidia_restore_wants "$T/p16-before" 7.0.0-1030-nvidia 2>&1 | paste -sd' ')"
+eq "restore wants: nothing recorded" "" "$(nvidia_restore_wants /dev/null 7.0.0-1030-nvidia)"
 unset -f mkk
 
 # --- the N1x GPU ------------------------------------------------------------------------------

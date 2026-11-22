@@ -180,7 +180,7 @@ do_remove() {
 	# What comes back is the packages from before, at their current versions: the exact ones
 	# may have left the archive (a security respin of 615).
 	local -a want=() remove=() kpkgs=()
-	mapfile -t want < <(nvidia_restore_wants "$STATE/nvidia-before")
+	mapfile -t want < <(nvidia_restore_wants "$STATE/nvidia-before" "$prev")
 	mapfile -t remove < <(dpkg_installed | nvidia_restore_removals "$BRANCH" "$NV_DKMS" "$STATE/nvidia-before")
 	mapfile -t kpkgs < <(dpkg-query -W -f '${db:Status-Abbrev}${Package}\n' | n1x_kernel_pkgs)
 	proposed_enable
