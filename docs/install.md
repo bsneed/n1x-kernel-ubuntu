@@ -99,8 +99,11 @@ failure leaves a consistent 620 install that `--remove` can be run on again.
   a newer driver means changing `NVIDIA_VERSION` in `sources`, re-checking `patches/nvidia`,
   rebuilding and running `install.sh` again. Watch NVIDIA's security bulletins while you run
   this. A change to `patches/nvidia` alone raises `NVIDIA_N1X_REVISION`, so dpkg sees a new
-  version. The package refreshes every initramfs when it installs, because the kernel loads
-  the NVIDIA modules from there.
-- **This kernel**: a new Omarchy pin or kernel.org version is a change to `sources`, with
-  `N1X_REVISION` raised. Each revision is a new package name (`linux-image-7.3.0-n1x2`), so it
-  installs next to the previous one, as Ubuntu's kernels do.
+  version. So does any rebuild from a new commit: the package records the commit in its
+  `SOURCE` file, and `install.sh` refuses a package whose version is installed with other
+  files. The package refreshes every initramfs when it installs, because the kernel loads the
+  NVIDIA modules from there.
+- **This kernel**: a new Omarchy pin or kernel.org version, a `patches/ubuntu` patch or a
+  config change goes with `N1X_REVISION` raised in `sources`. Each revision is a new package
+  name (`linux-image-7.3.0-n1x2`), so it installs next to the previous one, as Ubuntu's
+  kernels do.

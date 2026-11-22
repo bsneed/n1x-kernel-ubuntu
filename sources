@@ -19,8 +19,10 @@ BASE_CONFIG_SHA256=f1f75b7a9a721640077a98b6528bb898783939f199c5fe2d6aaae931af3ca
 BASE_CONFIG_PATH=usr/src/linux-headers-7.0.0-1026-nvidia/.config
 BASE_CONFIG_FILE_SHA256=d93993d453eeb5aad943d7181b3bbc3b3f078088405c04a3a6511e84b098f255
 
-# Our revision of this kernel: uname -r is <kernel>-n1x<N>, e.g. 7.3.0-n1x1.
-N1X_REVISION=1
+# Our revision of this kernel: uname -r is <kernel>-n1x<N>, e.g. 7.3.0-n1x2. Raise it with
+# every change to the kernel (patches/ubuntu, config): each revision is a new package.
+# 2: patches/ubuntu/0001 (mt7925 reset panic).
+N1X_REVISION=2
 
 # NVIDIA open kernel modules, built by our DKMS package with patches/nvidia.
 # Ubuntu's NVIDIA user space (nvidia-*-620) must be this upstream version; install.sh pins it.
@@ -31,4 +33,7 @@ NVIDIA_SHA256=3a107b31b22d6f5c8da34e5e22a66e38ccdb7a92ee23266d0e064d3b9635c93f
 # install.sh takes any Ubuntu revision of NVIDIA_VERSION; check.sh reports a different one.
 NVIDIA_UBUNTU_VERSION=620.73.04-0ubuntu0.26.04.1
 # Our revision of the DKMS package (nvidia-n1x-dkms-620-open 620.73.04-n1x<N>).
-NVIDIA_N1X_REVISION=2
+# The package records the commit it was built from (SOURCE), so a rebuild from a new commit
+# needs a new revision too, or install.sh refuses it as "other files under the same version".
+# 3: no module change, rebuilt for N1X_REVISION 2.
+NVIDIA_N1X_REVISION=3
