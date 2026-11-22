@@ -70,4 +70,54 @@ eq "back to: the old kernel is saved_entry" "$(id_of 7.0.0-1026-nvidia)" "$(grub
 eq "back to: twice is the same" "0|grub-editenv unset next_entry|grub-set-default $(id_of 7.0.0-1026-nvidia)" \
 	"$(steps grub_back_to 7.0.0-1026-nvidia)"
 eq "back to: a kernel without an entry stops" "1|grub-editenv unset next_entry" "$(steps grub_back_to 7.0.0-1020-nvidia)"
-unset -f mkcfg id_of update-grub grub-editenv grub-set-default steps
+
+# --- the order of the package steps against GRUB (G3, G4) -----------------------------------------
+# apt-get logs what it was asked, and GRUB_DEFAULT, the saved_entry kernel and the pin it ran with.
+APT=(apt-get -y) PIN=$T/steps-etc-pin
+# shellcheck disable=SC2317,SC2329 # called as "${APT[@]}" (SC2317 before shellcheck 0.10)
+apt-get() {
+	echo "apt-get $* [$(grep '^GRUB_DEFAULT=' "$GRUB_FILE") $(grub_saved_entry | sed -n 's/^.*>gnulinux-\(.*\)-advanced-.*$/\1/p') pin:$(cat "$PIN" 2>/dev/null)]" >>"$T/steps-log"
+	[[ ! -f $T/steps-apt-fails ]]
+}
+echo new >"$T/steps-new-pin"
+# First install on stock Ubuntu.
+printf 'GRUB_DEFAULT=0\n' >"$GRUB_FILE"
+mkcfg 7.0.0-1026-nvidia >"$GRUB_CFG"
+: >"$T/steps-env"
+rm -f "$PIN"
+eq "install: GRUB keeps the old kernel before apt runs, with the pin" \
+	"0|update-grub|grub-set-default $(id_of 7.0.0-1026-nvidia)|apt-get -y install k.deb nvidia-utils-620 [GRUB_DEFAULT=saved 7.0.0-1026-nvidia pin:new]" \
+	"$(steps install_packages 7.0.0-1026-nvidia "$T/steps-new-pin" install k.deb nvidia-utils-620)"
+eq "install: the pin is in /etc" new "$(cat "$PIN")"
+printf 'GRUB_DEFAULT=0\n' >"$GRUB_FILE"
+rm -f "$PIN"
+eq "install: no GRUB entry for the old kernel stops before the pin and apt" "1|update-grub" \
+	"$(steps install_packages 7.0.0-1020-nvidia "$T/steps-new-pin" install k.deb)"
+eq "install: no pin written then" no "$([[ -e $PIN ]] && echo yes || echo no)"
+touch "$T/steps-apt-fails"
+eq "install: a failed apt transaction stops" \
+	"1|update-grub|grub-set-default $(id_of 7.0.0-1026-nvidia)|apt-get -y install k.deb [GRUB_DEFAULT=saved 7.0.0-1026-nvidia pin:new]" \
+	"$(steps install_packages 7.0.0-1026-nvidia "$T/steps-new-pin" install k.deb)"
+eq "install: says the transaction failed" 1 "$(grep -c '^ERROR: the apt transaction failed' "$T/steps-err")"
+rm "$T/steps-apt-fails"
+
+# --remove after --default: 7.3 is the default and a one-time boot may be pending.
+mkcfg 7.3.0-n1x1 7.0.0-1026-nvidia >"$GRUB_CFG"
+printf 'saved_entry=%s\n' "$(id_of 7.3.0-n1x1)" >"$T/steps-env"
+echo old >"$PIN"
+eq "restore: GRUB boots the old kernel before apt takes our modules away" \
+	"0|grub-editenv unset next_entry|grub-set-default $(id_of 7.0.0-1026-nvidia)|apt-get -y install nvidia-utils-615 nvidia-n1x-dkms-620-open- [GRUB_DEFAULT=saved 7.0.0-1026-nvidia pin:new]" \
+	"$(steps restore_packages 7.0.0-1026-nvidia "$T/steps-new-pin" install nvidia-utils-615 nvidia-n1x-dkms-620-open-)"
+eq "restore: the pin goes once the restore has worked" no "$([[ -e $PIN ]] && echo yes || echo no)"
+echo old >"$PIN"
+eq "restore: without a rewritten pin, apt runs with the one in /etc" \
+	"0|grub-editenv unset next_entry|grub-set-default $(id_of 7.0.0-1026-nvidia)|apt-get -y install nvidia-utils-615 [GRUB_DEFAULT=saved 7.0.0-1026-nvidia pin:old]" \
+	"$(steps restore_packages 7.0.0-1026-nvidia "$T/steps-none" install nvidia-utils-615)"
+echo old >"$PIN"
+touch "$T/steps-apt-fails"
+eq "restore: a failed restore stops" \
+	"1|grub-editenv unset next_entry|grub-set-default $(id_of 7.0.0-1026-nvidia)|apt-get -y install nvidia-utils-615 [GRUB_DEFAULT=saved 7.0.0-1026-nvidia pin:new]" \
+	"$(steps restore_packages 7.0.0-1026-nvidia "$T/steps-new-pin" install nvidia-utils-615)"
+eq "restore: the pin stays after a failed restore" new "$(cat "$PIN")"
+rm "$T/steps-apt-fails"
+unset -f mkcfg id_of update-grub grub-editenv grub-set-default steps apt-get

@@ -124,12 +124,9 @@ do_install() {
 	fi
 	echo "$prev" >"$STATE/previous-kernel"
 	msg "Previous kernel: $prev; NVIDIA before: $(paste -sd' ' "$STATE/nvidia-before")"
-	# Before any package changes, so that every failure from here on leaves $prev the default.
-	grub_keep_fallback "$prev"
-
-	cp "$TMP/pin" "$PIN"
 	msg "Installing $RELEASE and NVIDIA $NVIDIA_VERSION${remove[*]:+, removing ${remove[*]}}"
-	"${APT[@]}" "${args[@]}" || die "the apt transaction failed (see above); fix that and run install.sh again"
+	# GRUB keeps $prev the default before any package changes, so every failure from here on boots it.
+	install_packages "$prev" "$TMP/pin" "${args[@]}"
 	dkms_all_kernels
 	# The kernel loads the NVIDIA modules from the initramfs; DKMS 3 rebuilds none of them.
 	msg "Refreshing every initramfs"
@@ -197,16 +194,11 @@ do_remove() {
 	msg "Checking the apt transactions (apt-get -s)"
 	apt_simulate "$TMP/allowed" "" "" -o Dir::Etc::PreferencesParts="$TMP/prefs" install "${want[@]}" "${remove[@]/%/-}"
 	[[ ${#kpkgs[@]} -eq 0 ]] || apt_simulate "$TMP/kallowed" "" "" purge "${kpkgs[@]}"
-	[[ ! -f $TMP/prefs/${PIN##*/} ]] || cp "$TMP/prefs/${PIN##*/}" "$PIN"
 
-	# Before the restore takes our modules away from every kernel, 7.3 included: a failure from
-	# here on must leave GRUB booting $prev, which gets its NVIDIA driver back.
-	msg "GRUB default: $prev"
-	grub_back_to "$prev"
+	# GRUB boots $prev, which gets its NVIDIA driver back, before the restore takes our modules
+	# away from every kernel, 7.3 included: a failure from here on must leave it the default.
 	msg "Restoring NVIDIA: ${want[*]:-(none)}${remove[*]:+; removing ${remove[*]}}"
-	"${APT[@]}" install "${want[@]}" "${remove[@]/%/-}" ||
-		die "restoring the NVIDIA packages failed (see above); the apt pin stays, so 620 stays whole. Fix that and run --remove again"
-	rm -f "$PIN"
+	restore_packages "$prev" "$TMP/prefs/${PIN##*/}" install "${want[@]}" "${remove[@]/%/-}"
 	update-initramfs -u -k all ||
 		die "update-initramfs failed (see above; is /boot full?). The NVIDIA packages are back and GRUB boots $prev by default; fix that and run --remove again"
 	persistenced_drop

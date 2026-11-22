@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # The steps of scripts/install.sh that change the system: the temporary -proposed source,
 # checked apt transactions, GRUB, the nvidia-persistenced override. Sourced by install.sh,
-# whose settings (PROPOSED_*, GRUB_*, RELEASE, TMP) they use.
+# whose settings (PROPOSED_*, GRUB_*, RELEASE, TMP, PIN, APT) they use.
 # shellcheck shell=bash
 
 # Temporary <codename>-proposed at priority 1 (only versions asked for by name), as
@@ -86,6 +86,33 @@ grub_keep_fallback() {
 grub_back_to() {
 	grub-editenv - unset next_entry
 	grub_point set-default "$1"
+}
+
+# install_packages PREV PINFILE APT-ARGS...: the install's apt transaction. GRUB keeps PREV the
+# default first (grub_keep_fallback), then the pin PINFILE goes to /etc and apt runs APT-ARGS:
+# the kernel package's own update-grub makes the new kernel entry 0, so with that order a
+# failure from here on still boots PREV (G3).
+install_packages() {
+	local prev=$1 pin=$2
+	shift 2
+	grub_keep_fallback "$prev"
+	cp "$pin" "$PIN"
+	"${APT[@]}" "$@" || die "the apt transaction failed (see above); fix that and run install.sh again"
+}
+
+# restore_packages PREV PINFILE APT-ARGS...: --remove's NVIDIA restore. GRUB boots PREV first
+# (grub_back_to), since the restore takes our modules away from every kernel, 7.3 included (G4);
+# then the pin PINFILE, if there is one, goes to /etc, and apt runs APT-ARGS. The pin stays until
+# that has worked, so a failure can't leave 620 unpinned.
+restore_packages() {
+	local prev=$1 pin=$2
+	shift 2
+	[[ ! -f $pin ]] || cp "$pin" "$PIN"
+	msg "GRUB default: $prev"
+	grub_back_to "$prev"
+	"${APT[@]}" "$@" ||
+		die "restoring the NVIDIA packages failed (see above); the apt pin stays, so 620 stays whole. Fix that and run --remove again"
+	rm -f "$PIN"
 }
 
 # Writes (or refreshes) the nvidia-persistenced override when the packaged unit has the
