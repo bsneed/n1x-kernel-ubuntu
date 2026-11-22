@@ -6,11 +6,19 @@ limitation into the README.
 
 ## Display
 
-- [ ] **Dell U4025QW runs at 60 Hz through the CalDigit TS5 Plus.** Kernel 7.3.0-n1x1 with NVIDIA
-  620 drives it (DP-8, USB4 DisplayPort tunnel) but offers 60 Hz at most. The same monitor, dock
-  and cable run 5120x2160 at 120 Hz on a Mac, so the limit is on the N1x/Linux side. Check whether
-  DSC is enabled through the tunnel, the tunnel's bandwidth allocation (link rate and lanes), and
-  the driver's mode list against the EDID/DisplayID.
+- [x] **Dell U4025QW at 5120x2160 120 Hz** (2026-11-22). Use the laptop's **HDMI** port. It runs
+  `HDMI FRL (DSC)` at 120 Hz with VRR, and survives reboots, unplugs and replugs. Put the keyboard
+  and mouse on the TS5 Plus, which then carries only USB and Ethernet. Through a USB4
+  DisplayPort tunnel (the TS5 Plus's DP port, or the Dell's own Thunderbolt input) the link is
+  unreliable:
+  - The first tunnel after a boot or a full reconnect trains at HBR x4 (8640 Mb/s), where DSC
+    fits only 60 Hz. Replugging the DP cable, or power-cycling the Dell, rebuilds the tunnel at
+    HBR3 x4 (25920 Mb/s), and 120 Hz is offered. Seen on the dock's DP OUT (1:11) with the Dell's
+    hub out of the path, so it isn't the Dell's Thunderbolt Daisy Chain setting or its inputs.
+  - Best guess, not proven: the N1x DP IN's hardware DPCD auto-read (NVIDIA Bug 6102109) records
+    the lower rate, and NVIDIA's software auto-read workaround (Realtek sinks; the Dell reports
+    OUI 00:E0:4C) is applied only after that first read. Logs: rtx24 `/home/bsneed/work/testA/`.
+  - Not reported to NVIDIA; the data isn't conclusive enough.
 - [x] **Red and orange messages at boot** (2026-11-21). The coloured text was systemd's status
   lines, not the kernel (`quiet` keeps kernel messages off the console). Fixed on rtx24; after a
   reboot PID 1 logs no warnings:
@@ -26,23 +34,19 @@ limitation into the README.
     info.
 - [x] **Ship the nvidia-persistenced override in `scripts/install.sh`** (2026-11-21): generated
   from the packaged unit on every run, removed by `--remove`, checked by `check.sh`.
-- [ ] Report the nvidia-persistenced ordering cycle against Ubuntu's nvidia-graphics-drivers-620
-  (`Before=systemd-backlight@backlight:nvidia_0.service` in a unit that runs after
-  `sysinit.target`).
+- [x] Reported the nvidia-persistenced ordering cycle to Ubuntu: LP #2175497 (2026-11-21).
 - [x] **README: AppArmor differs from stock Ubuntu** (2026-11-21, Known issues).
-- [ ] **Dock hotplug is broken on the display side.** Seen 2026-11-21 on 7.3.0-n1x1 + NVIDIA 620:
-  - Unplugging the dock does not fall back to the internal panel (eDP-1); the desktop stays on
-    the absent external until the lid is closed and reopened.
-  - Moving the dock to a different USB-C port brought no picture on the Dell, and tripped a
-    kernel WARN in `nvidia_drm` (`__nv_drm_handle_flip_event+0x218` via `nv_drm_event_callback`
-    / `nvKmsKapiHandleEventQueueChange`) that glitched GNOME. Back on the original port the Dell
-    came up again. dmesg snapshot: rtx24 `/home/bsneed/work/replug-1628/`.
-  - The dock's USB and 10GbE re-enumerate fine; it is only DisplayPort.
-  - About six minutes after the replug, `NetworkManager`, `tailscaled` and kernel workers hung
-    for over two minutes on a mutex held by `irq/315-pciehp` (PCIe hotplug), so the hotplug path
-    can stall networking too.
-  - See the DP 120 Hz report (`/Users/bsneed/work/n1x-kernel-ubuntu-reports/dp-120hz.md`) for
-    which host router / DP IN adapter each port uses.
+- [ ] *(moot with HDMI)* **Dock hotplug with a display on the USB4 tunnel.** Seen 2026-11-21/22 on
+  7.3 + NVIDIA 620, only when the Dell is carried over the tunnel:
+  - On a cable unplug, `nvidia-modeset` logs `AuxChCtl Failing` and `DPCONN> Zombie? 1` and keeps
+    the connector alive, so GNOME doesn't fall back to the internal panel (or does so late).
+    Turning the Dell off (DP adapter unplug, USB4 link stays up) falls back instantly.
+  - On a replug, GNOME's modeset waits about 30 s for the dock's PCIe tunnel
+    (`pciehp: Slot(0): Card present / Link Up`); PipeWire underruns (audio blips) at that moment.
+  - The port next to HDMI brought no picture once, with a WARN in `nvidia_drm`
+    (`__nv_drm_handle_flip_event`); dmesg in rtx24 `/home/bsneed/work/replug-1628/`.
+  - Once, ~6 min after a replug, NetworkManager, tailscaled and kernel workers hung >2 min on a
+    mutex held by `irq/315-pciehp`. Worth watching for with the dock carrying only USB/Ethernet.
 
 ## Power and suspend
 
