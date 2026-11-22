@@ -71,6 +71,10 @@ fails "no branch for a 4-digit number" nvidia_branch_of nvidia-foo-1234
 eq "prebuilt kernel" 7.0.0-1026-nvidia "$(nvidia_prebuilt_kernel linux-modules-nvidia-615-open-7.0.0-1026-nvidia)"
 eq "prebuilt kernel of a server build" 7.0.0-44-generic "$(nvidia_prebuilt_kernel linux-modules-nvidia-580-server-7.0.0-44-generic)"
 fails "prebuilt kernel of user space" nvidia_prebuilt_kernel nvidia-utils-615
+eq "prebuilt kernel of the objects package" 7.0.0-1026-nvidia "$(nvidia_prebuilt_kernel linux-objects-nvidia-615-open-7.0.0-1026-nvidia)"
+eq "prebuilt kernel of a -64k kernel" 7.0.0-1026-nvidia-64k "$(nvidia_prebuilt_kernel linux-modules-nvidia-615-open-7.0.0-1026-nvidia-64k)"
+fails "no prebuilt kernel for the metapackage" nvidia_prebuilt_kernel linux-modules-nvidia-615-open-nvidia
+fails "no prebuilt kernel for the -64k metapackage" nvidia_prebuilt_kernel linux-modules-nvidia-615-open-nvidia-64k
 
 # --- --remove: what goes, and what comes back --------------------------------------------------
 grep -E -- '-615|=615' "$T/installed" >"$T/before"

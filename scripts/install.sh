@@ -82,9 +82,13 @@ do_install() {
 	done
 
 	# The kernel GRUB keeps as the default (and falls back to) must get our NVIDIA modules.
-	local prev p k
+	local prev p k recorded
 	if [[ -f $STATE/previous-kernel ]]; then
-		prev=$(cat "$STATE/previous-kernel")
+		recorded=$(cat "$STATE/previous-kernel")
+		prev=$(fallback_kernel "$recorded") ||
+			die "$recorded, the kernel GRUB falls back to, is no longer installed, and no Ubuntu linux-nvidia kernel is (sudo apt install linux-nvidia)"
+		[[ $prev == "$recorded" ]] ||
+			warn "$recorded, the kernel GRUB fell back to, is no longer installed (apt autoremove?): $prev, the newest Ubuntu linux-nvidia kernel, takes its place, for --remove too"
 	else
 		prev=$(uname -r)
 		is_n1x_release "$prev" && die "running $prev but $STATE is missing; boot an Ubuntu kernel first"
@@ -111,13 +115,14 @@ do_install() {
 	msg "Checking the apt transaction (apt-get -s)"
 	apt_simulate "$TMP/allowed" "$BRANCH" "$NVIDIA_VERSION" -o Dir::Etc::Preferences="$TMP/pin" "${args[@]}"
 
-	# What --remove goes back to. Kept from the first install, so a reinstall does not overwrite it.
+	# What --remove goes back to. Kept from the first install, so a reinstall does not overwrite
+	# it; only the kernel follows fallback_kernel when the recorded one is gone.
 	mkdir -p "$STATE"
 	if [[ ! -f $STATE/previous-kernel ]]; then
 		nvidia_before "$BRANCH" "$NV_DKMS" "$TMP/allowed" <<<"$installed" >"$STATE/nvidia-before"
 		cp -p "$GRUB_FILE" "$STATE/grub.before"
-		echo "$prev" >"$STATE/previous-kernel"
 	fi
+	echo "$prev" >"$STATE/previous-kernel"
 	msg "Previous kernel: $prev; NVIDIA before: $(paste -sd' ' "$STATE/nvidia-before")"
 
 	cp "$TMP/pin" "$PIN"
@@ -164,14 +169,19 @@ do_default() {
 do_remove() {
 	[[ -f $STATE/previous-kernel && -f $STATE/nvidia-before ]] ||
 		die "$STATE is missing: nothing to restore (was scripts/install.sh run on this machine?)"
-	local prev
-	prev=$(cat "$STATE/previous-kernel")
-	[[ -d $MODULES_ROOT/$prev ]] || die "previous kernel $prev is no longer installed"
+	local prev recorded
+	recorded=$(cat "$STATE/previous-kernel")
+	prev=$(fallback_kernel "$recorded") ||
+		die "previous kernel $recorded is no longer installed, and no Ubuntu linux-nvidia kernel is (sudo apt install linux-nvidia, then run --remove again)"
+	if [[ $prev != "$recorded" ]]; then
+		warn "previous kernel $recorded is no longer installed (apt autoremove?): going back to $prev, the newest Ubuntu linux-nvidia kernel, instead"
+		echo "$prev" >"$STATE/previous-kernel"
+	fi
 
 	# What comes back is the packages from before, at their current versions: the exact ones
 	# may have left the archive (a security respin of 615).
 	local -a want=() remove=() kpkgs=()
-	mapfile -t want < <(cut -d= -f1 "$STATE/nvidia-before" | grep . || true)
+	mapfile -t want < <(nvidia_restore_wants "$STATE/nvidia-before")
 	mapfile -t remove < <(dpkg_installed | nvidia_restore_removals "$BRANCH" "$NV_DKMS" "$STATE/nvidia-before")
 	mapfile -t kpkgs < <(dpkg-query -W -f '${db:Status-Abbrev}${Package}\n' | n1x_kernel_pkgs)
 	proposed_enable

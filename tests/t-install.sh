@@ -131,6 +131,51 @@ for k in 7.0.0-44-generic 7.3.0-n1x1 7.0.0-1026-nvidia-foo nvidia 7.0.0-nvidia; 
 	eq "$k is not Ubuntu's linux-nvidia" 1 "$(ubuntu_nvidia_kernel "$k"; echo $?)"
 done
 
+# --- the fallback kernel after apt autoremove ------------------------------------------------------
+MODULES_ROOT=$T/fb-modules BOOT_ROOT=$T/fb-boot
+mkdir -p "$BOOT_ROOT"
+mkk() { mkdir -p "$MODULES_ROOT/$1" && touch "$BOOT_ROOT/vmlinuz-$1"; }
+for k in 7.3.0-n1x1 7.0.0-44-generic 7.0.0-999-nvidia 7.0.0-1030-nvidia 7.0.0-1028-nvidia \
+	7.0.0-1030-nvidia-64k 7.0.0-1028-nvidia-64k; do
+	mkk "$k"
+done
+mkdir -p "$MODULES_ROOT/7.0.0-1026-nvidia/updates" # left behind by DKMS, no kernel image
+mkdir -p "$MODULES_ROOT/7.0.0-1040-nvidia"           # an image half removed: no vmlinuz
+eq "fallback: the recorded kernel while it is installed" 7.0.0-1028-nvidia "$(fallback_kernel 7.0.0-1028-nvidia)"
+eq "fallback: an installed non-nvidia kernel stays" 7.0.0-44-generic "$(fallback_kernel 7.0.0-44-generic)"
+eq "fallback: the newest linux-nvidia (version order) once it is gone" 7.0.0-1030-nvidia "$(fallback_kernel 7.0.0-1026-nvidia)"
+eq "fallback: the -64k flavour for a -64k kernel" 7.0.0-1030-nvidia-64k "$(fallback_kernel 7.0.0-1026-nvidia-64k)"
+eq "fallback: linux-nvidia for a removed generic kernel" 7.0.0-1030-nvidia "$(fallback_kernel 7.0.0-40-generic)"
+eq "fallback: never our kernel" 0 "$(fallback_kernel 7.0.0-1026-nvidia | grep -c n1x)"
+mkk 7.1.0-3-nvidia
+eq "fallback: a newer kernel version wins" 7.1.0-3-nvidia "$(fallback_kernel 7.0.0-1026-nvidia)"
+rm -r "$MODULES_ROOT"/7.*-nvidia* "$BOOT_ROOT"/vmlinuz-7.*-nvidia*
+mkk 7.0.0-1030-nvidia-64k
+eq "fallback: the other flavour when that is all there is" 7.0.0-1030-nvidia-64k "$(fallback_kernel 7.0.0-1026-nvidia)"
+rm -r "$MODULES_ROOT/7.0.0-1030-nvidia-64k"
+fails "fallback: no linux-nvidia kernel left" fallback_kernel 7.0.0-1026-nvidia
+eq "fallback: prints nothing then" "" "$(fallback_kernel 7.0.0-1026-nvidia 2>&1)"
+mkk 7.0.0-1030-nvidia
+cat >"$T/fb-before" <<'PKGS'
+linux-modules-nvidia-615-open-7.0.0-1026-nvidia=7.0.0-1026.27
+linux-objects-nvidia-615-open-7.0.0-1026-nvidia=7.0.0-1026.27
+linux-modules-nvidia-615-open-nvidia=7.0.0-1026.27
+linux-modules-nvidia-615-open-7.0.0-1030-nvidia=7.0.0-1030.31
+nvidia-utils-615=615.71.09-0ubuntu0.26.04.2
+
+PKGS
+eq "restore wants: not the modules of a removed kernel; the metapackage brings the new ones" \
+	"linux-modules-nvidia-615-open-nvidia linux-modules-nvidia-615-open-7.0.0-1030-nvidia nvidia-utils-615" \
+	"$(nvidia_restore_wants "$T/fb-before" 2>/dev/null | paste -sd' ')"
+eq "restore wants: says what it leaves out" \
+	"WARNING: not reinstalling linux-modules-nvidia-615-open-7.0.0-1026-nvidia: kernel 7.0.0-1026-nvidia is no longer installed|WARNING: not reinstalling linux-objects-nvidia-615-open-7.0.0-1026-nvidia: kernel 7.0.0-1026-nvidia is no longer installed" \
+	"$(nvidia_restore_wants "$T/fb-before" 2>&1 >/dev/null | paste -sd'|')"
+mkk 7.0.0-1026-nvidia
+eq "restore wants: everything while the kernel is installed" \
+	"$(cut -d= -f1 "$T/fb-before" | grep . | paste -sd' ')" "$(nvidia_restore_wants "$T/fb-before" 2>&1 | paste -sd' ')"
+eq "restore wants: nothing recorded" "" "$(nvidia_restore_wants /dev/null)"
+unset -f mkk
+
 # --- the N1x GPU ------------------------------------------------------------------------------
 mkpci() { mkdir -p "$T/pci-$1/$2" && printf '%s\n' "$3" >"$T/pci-$1/$2/vendor" && printf '%s\n' "$4" >"$T/pci-$1/$2/device"; }
 mkpci p16 0000:00:00.0 0x10de 0x22ce

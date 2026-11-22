@@ -54,10 +54,11 @@ nvidia_before() {
 }
 
 # nvidia_prebuilt_kernel NAME: the kernel release of a prebuilt-modules package
-# (linux-modules-nvidia-615-open-7.0.0-1026-nvidia -> 7.0.0-1026-nvidia); fails for others.
+# (linux-modules-nvidia-615-open-7.0.0-1026-nvidia and its linux-objects-* -> 7.0.0-1026-nvidia);
+# fails for others, the metapackage linux-modules-nvidia-615-open-nvidia among them.
 nvidia_prebuilt_kernel() {
-	[[ $1 =~ ^linux-modules-nvidia-[0-9]{3}(-server)?(-open)?-(.+)$ ]] || return 1
-	printf '%s\n' "${BASH_REMATCH[3]}"
+	[[ $1 =~ ^linux-(modules|objects)-nvidia-[0-9]{3}(-server)?(-open)?-([0-9]+\.[0-9]+\.[0-9]+-.+)$ ]] || return 1
+	printf '%s\n' "${BASH_REMATCH[4]}"
 }
 
 # nvidia_restore_removals BRANCH DKMS BEFORE: reads installed packages as "name=version" lines

@@ -40,7 +40,9 @@ or would install a NVIDIA 620 package of another version than 620.73.04. Then it
    `GRUB_DEFAULT=saved` (proart-p16-linux sets it; stock Ubuntu has `0`, which boots the
    newest kernel whatever `grub-set-default` says), so `install.sh` sets it and `--remove`
    puts the old value back. After `--default`, running `install.sh` again keeps the new kernel
-   as the default.
+   as the default. Once Ubuntu removes that old kernel (`apt autoremove` keeps the running and
+   the two newest), `install.sh` and `--remove` say so and use the newest installed
+   `linux-nvidia` kernel in its place; run `install.sh` again then, so GRUB's fallback follows.
 6. Writes `/etc/systemd/system/nvidia-persistenced.service` when Ubuntu's unit needs it.
    `nvidia-compute-utils-620`'s unit says `Before=systemd-backlight@backlight:nvidia_0.service`
    but runs after `sysinit.target`, which that backlight unit runs before: on the N1x, whose
@@ -65,12 +67,13 @@ It records what it replaced, and the NVIDIA 620 packages that were already insta
 
 This reinstalls the NVIDIA packages that were there before (by name, at the version the
 archive has now, e.g. Ubuntu's 615 and its prebuilt modules for `linux-nvidia`: the exact
-versions from back then may be gone after a security update), purges
+versions from back then may be gone after a security update; prebuilt modules for a kernel
+that has been removed since are left out, and the metapackage brings the current one's), purges
 `nvidia-n1x-dkms-620-open`, the 620 user space (the 620 packages that were installed before
 stay, and Ubuntu's `nvidia-dkms-620-open` comes back) and every `linux-image/headers-*-n1x*`
 package, removes the apt pin, our nvidia-persistenced override and our `pci=` options, and
 points GRUB's default back at the kernel that was running at install time (Ubuntu's
-`linux-nvidia`). The kernel command line and `GRUB_DEFAULT` go back to what they
+`linux-nvidia`; the newest installed one if that kernel is gone). The kernel command line and `GRUB_DEFAULT` go back to what they
 were before the first install (a `pci=` value of yours that the install replaced comes back;
 an option you had already stays); a later edit of your own to either is kept. It simulates
 both apt transactions first and keeps the apt pin until the NVIDIA packages are back, so a

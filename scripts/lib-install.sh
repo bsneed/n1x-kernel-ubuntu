@@ -101,6 +101,9 @@ ubuntu_nvidia_kernel() {
 	[[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+-nvidia(-64k)?$ ]]
 }
 
+# kernel_installed RELEASE: true if RELEASE has a /boot/vmlinuz-<release> and modules.
+kernel_installed() { [[ -f $BOOT_ROOT/vmlinuz-$1 && -d $MODULES_ROOT/$1 ]]; }
+
 # kernels_bootable: every kernel release with a /boot/vmlinuz-<release> and modules.
 kernels_bootable() {
 	local d k
@@ -109,6 +112,51 @@ kernels_bootable() {
 		[[ -f $BOOT_ROOT/vmlinuz-$k ]] && printf '%s\n' "$k"
 	done
 	return 0
+}
+
+# fallback_kernel PREV: the kernel GRUB falls back to and --remove goes back to. PREV (recorded at
+# the first install) while it is installed; once it is gone (apt autoremove keeps only the running
+# and the two newest kernels), the newest installed Ubuntu linux-nvidia kernel, of PREV's flavour
+# (-64k or not) if there is one. Fails if there is none.
+fallback_kernel() {
+	local prev=$1 k want64=no is64
+	local -a same=() other=()
+	if kernel_installed "$prev"; then
+		printf '%s\n' "$prev"
+		return 0
+	fi
+	[[ $prev == *-64k ]] && want64=yes
+	for k in $(kernels_bootable); do
+		ubuntu_nvidia_kernel "$k" || continue
+		is64=no
+		[[ $k == *-64k ]] && is64=yes
+		if [[ $is64 == "$want64" ]]; then same+=("$k"); else other+=("$k"); fi
+	done
+	if [[ ${#same[@]} -gt 0 ]]; then
+		printf '%s\n' "${same[@]}" | sort -V | tail -1
+	elif [[ ${#other[@]} -gt 0 ]]; then
+		printf '%s\n' "${other[@]}" | sort -V | tail -1
+	else
+		return 1
+	fi
+}
+
+# nvidia_restore_wants BEFORE: the names in BEFORE ("name=version" lines, nvidia-before) that
+# --remove reinstalls: all but the prebuilt modules of a kernel that is no longer installed
+# (linux-modules-nvidia-615-open-7.0.0-1026-nvidia once apt has removed 1026), which apt could
+# not install without that kernel. The metapackage (linux-modules-nvidia-615-open-nvidia)
+# brings the modules of the current one.
+nvidia_restore_wants() {
+	local name k
+	while IFS= read -r name; do
+		name=${name%%=*}
+		[[ -n $name ]] || continue
+		if k=$(nvidia_prebuilt_kernel "$name") && ! kernel_installed "$k"; then
+			warn "not reinstalling $name: kernel $k is no longer installed"
+			continue
+		fi
+		printf '%s\n' "$name"
+	done <"$1"
 }
 
 # dkms_all_kernels: builds our NVIDIA modules (nvidia-n1x NVIDIA_VERSION) for every kernel that
