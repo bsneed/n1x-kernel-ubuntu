@@ -109,19 +109,8 @@ if [[ -z $nodkms ]]; then OK "NVIDIA modules built for every kernel with headers
 else WARN "no NVIDIA modules for: $nodkms"; fi
 
 if [[ -r $PERSISTENCED_UNIT ]]; then
-	if ! grep -qxF "$PERSISTENCED_CYCLE" "$PERSISTENCED_UNIT"; then
-		OK "nvidia-persistenced: the packaged unit has no backlight ordering cycle"
-	elif persistenced_is_ours "$PERSISTENCED_OVERRIDE"; then
-		if cmp -s <(persistenced_override "$PERSISTENCED_UNIT") "$PERSISTENCED_OVERRIDE"; then
-			OK "nvidia-persistenced override without the ordering cycle ($PERSISTENCED_OVERRIDE)"
-		else
-			WARN "nvidia-persistenced override is older than the packaged unit (sudo bash scripts/install.sh)"
-		fi
-	elif [[ -f $PERSISTENCED_OVERRIDE ]] && ! grep -qxF "$PERSISTENCED_CYCLE" "$PERSISTENCED_OVERRIDE"; then
-		OK "nvidia-persistenced: your own override, without the ordering cycle ($PERSISTENCED_OVERRIDE)"
-	else
-		WARN "nvidia-persistenced has a boot-time ordering cycle ($PERSISTENCED_CYCLE; sudo bash scripts/install.sh)"
-	fi
+	s=$(persistenced_status "$PERSISTENCED_UNIT" "$PERSISTENCED_OVERRIDE")
+	"${s%% *}" "${s#* }"
 fi
 
 echo "== Displays"

@@ -125,3 +125,26 @@ persistenced_override() {
 persistenced_is_ours() {
 	[[ -f $1 ]] && [[ $(head -1 "$1") == "$PERSISTENCED_MARK "* ]]
 }
+
+# persistenced_status UNIT OVERRIDE: check.sh's verdict on the ordering cycle of the packaged
+# UNIT and the OVERRIDE in /etc, as one line: "OK message" or "WARN message".
+persistenced_status() {
+	local unit=$1 over=$2
+	if ! grep -qxF "$PERSISTENCED_CYCLE" "$unit"; then
+		if persistenced_is_ours "$over"; then
+			echo "WARN nvidia-persistenced: our stale override $over still shadows the packaged unit, which no longer has the ordering cycle (sudo bash scripts/install.sh removes it)"
+		else
+			echo "OK nvidia-persistenced: the packaged unit has no backlight ordering cycle"
+		fi
+	elif persistenced_is_ours "$over"; then
+		if cmp -s <(persistenced_override "$unit") "$over"; then
+			echo "OK nvidia-persistenced override without the ordering cycle ($over)"
+		else
+			echo "WARN nvidia-persistenced override is older than the packaged unit (sudo bash scripts/install.sh)"
+		fi
+	elif [[ -f $over ]] && ! grep -qxF "$PERSISTENCED_CYCLE" "$over"; then
+		echo "OK nvidia-persistenced: your own override, without the ordering cycle ($over)"
+	else
+		echo "WARN nvidia-persistenced has a boot-time ordering cycle ($PERSISTENCED_CYCLE; sudo bash scripts/install.sh)"
+	fi
+}

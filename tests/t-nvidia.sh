@@ -154,5 +154,20 @@ grep -vxF "$PERSISTENCED_CYCLE" "$U620" >"$T/fixed.service"
 fails "no override for a unit without the cycle" persistenced_override "$T/fixed.service"
 eq "no output for a unit without the cycle" "" "$(persistenced_override "$T/fixed.service" 2>&1)"
 fails "no override without the unit" persistenced_override "$T/none.service"
+# check.sh's verdict ($T/persistenced is our override of U620; $T/fixed.service the unit fixed).
+pst() { persistenced_status "$@" | cut -d' ' -f1; }
+eq "status: our current override" OK "$(pst "$U620" "$T/persistenced")"
+{ head -n -1 "$T/persistenced"; echo "# older"; } >"$T/older"
+eq "status: our override of an older unit" WARN "$(pst "$U620" "$T/older")"
+eq "status: the cycle and no override" WARN "$(pst "$U620" "$T/none")"
+cp "$T/fixed.service" "$T/own.service"
+eq "status: an override of your own without the cycle" OK "$(pst "$U620" "$T/own.service")"
+eq "status: an override of your own with the cycle" WARN "$(pst "$U620" "$U620")"
+eq "status: a fixed unit and no override" OK "$(pst "$T/fixed.service" "$T/none")"
+eq "status: a fixed unit and your own override" OK "$(pst "$T/fixed.service" "$T/own.service")"
+eq "status: a fixed unit shadowed by our stale override" \
+	"WARN nvidia-persistenced: our stale override $T/persistenced still shadows the packaged unit, which no longer has the ordering cycle (sudo bash scripts/install.sh removes it)" \
+	"$(persistenced_status "$T/fixed.service" "$T/persistenced")"
+unset -f pst
 sed "s/^$PERSISTENCED_CYCLE\$/Before=systemd-backlight@backlight:nvidia_0.service other.service/" "$U620" >"$T/two.service"
 fails "no override when the line differs" persistenced_override "$T/two.service"
