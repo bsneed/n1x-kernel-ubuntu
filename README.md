@@ -66,6 +66,9 @@ Ubuntu user space.
 - **`patches/ubuntu/`**: deltas this packaging needs on top of Omarchy, applied after its
   patches the same way. 0001 is the 7.3.2 stable fix for an MT7925 Wi-Fi reset panic that hangs
   the P16 (upstream c182bfe944eb, CVE-2026-99560); it goes once the base is 7.3.2 or newer.
+  0002 (ours, not upstream) has i2c-hid retry a probe that times out on the P16, whose
+  keyboard and touchpad sometimes answer only minutes after a boot
+  ([docs/i2c-hid-probe-retry.md](docs/i2c-hid-probe-retry.md)).
   Ubuntu-specific needs are config-only (`config/n1x.config`).
 - **`patches/nvidia/`**: Omarchy's `nvidia-open-dkms` 0003–0009 (written for 615.78.08),
   rebased onto 620.73.04. None of them are in 620. 0003, 0004, 0006 and 0008 apply as they
@@ -227,6 +230,10 @@ Billboard devices.
   holds the installed user space at the module version.
 - The kernel is kernel.org 7.3, as Omarchy's recipe pins it, without the 7.3.x stable fixes
   except the MT7925 reset fix in `patches/ubuntu/`.
+- On some boots the P16's keyboard, touchpad and touchscreen don't answer at first (since
+  touchpad firmware V1.26.0918.1). This kernel retries them for up to 2 minutes, so they can
+  take that long to work; any other kernel, Ubuntu's included, leaves them dead until they are
+  rebound by hand or the next boot ([docs/i2c-hid-probe-retry.md](docs/i2c-hid-probe-retry.md)).
 - `thunderbolt-platform NVDA8100: RX overflow for ring 0` appears in the kernel log when a dock
   connects. Nothing has failed because of it.
 - Ubuntu's kernel SAUCE, AppArmor's Ubuntu-only extensions among them, is not in this kernel.

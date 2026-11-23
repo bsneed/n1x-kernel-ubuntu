@@ -78,14 +78,17 @@ limitation into the README.
   not safety.
 - [ ] **SD reader warning on resume:** `Trying to free already-free IRQ 322` (mmc0, `sdhci-pci`, via
   pciehp on resume). Predates proart_battery 1.9; the reader comes back. Kernel side.
-- [ ] **Internal keyboard and touchpad stop working after touchpad firmware V1.26.0918.1**
-  (installed by Windows 2026-11-22). After some Linux sessions they are dead on the next boot
-  (`i2c_hid_acpi ... failed to fetch HID descriptor: -110` on MKB0001, ASTH0001 and the touchpad),
-  and also dead in GRUB, so the controllers are stuck below Linux; a cold boot or reloading
-  `i2c_hid_acpi` doesn't help. Booting Windows and restarting into Ubuntu brings them back
-  (`grub-reboot "Windows Boot Manager (on /dev/nvme0n1p1)"`). Seen after a warm reboot at 16:58
-  and 17:54; a shutdown + cold boot at 17:12 was fine. Suspend/resume alone doesn't trigger it.
-  Find what Linux sends that wedges them, and what Windows sends that unwedges them.
+- [ ] **Internal keyboard and touchpad dead after some boots since touchpad firmware
+  V1.26.0918.1** (installed by Windows 2026-11-22). `i2c_hid_acpi ... failed to fetch HID
+  descriptor: -110` (or -6) on MKB0001, ASTH0001, the touchscreen and the touchpad, on cold
+  boots and restarts alike, so it is a boot-time probe race, not shutdown (PR #2's shutdown
+  quirk and early i2c-hid load didn't help and are gone). The devices are slow, not dead:
+  binding `i2c_hid_acpi` by hand 2-3 minutes later brings them back. `patches/ubuntu/0002`
+  (7.3.0-n1x5) retries the probe in the background every 5 s for up to 120 s
+  ([docs/i2c-hid-probe-retry.md](docs/i2c-hid-probe-retry.md)). Still to do: verify it on rtx24
+  over several cold boots and restarts (look for `probe retry N succeeded`), check that
+  `install.sh` removed `/etc/dracut.conf.d/50-i2c-hid-early.conf` there, and report it to
+  linux-input.
 - [ ] **BIOS update** once ASUS publishes something newer than H7607BA.300 for this model (none
   as of 2026-11-21). The BIOS-300 baseline (ACPI dump and both `check.sh` outputs) is in
   `/home/bsneed/work/bios-300-baseline/` on rtx24 and spark1. Diff the new tables for `_PRW`, then
