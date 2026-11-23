@@ -1,0 +1,105 @@
+From 983ae195bd20f958ecd376a8bc7a7d56865cb03b Mon Sep 17 00:00:00 2001
+From: Brandon Sneed <brandon@redf.net>
+Date: Sun, 22 Nov 2026 23:30:00 -0800
+Subject: [PATCH] HID: i2c-hid: don't put the ASUS ProArt P16's keyboard and
+ touchpad to sleep at shutdown
+
+n1x-kernel-ubuntu: not upstream. Written for this packaging and verified
+on the ProArt P16 (docs/i2c-hid-warm-reboot.md); it still has to be
+reported to linux-input.
+
+Why we carry it: since Windows installed touchpad firmware V1.26.0918.1
+(2026-11-22), a restart from Linux leaves the P16's internal keyboard
+(i2c-MKB0001, 0B05:4B42), its ASUS HID device (i2c-ASTH0001, 0B05:4543)
+and its touchpad (i2c-3030443150435341, 093A:4F01) dead: dead in GRUB
+too, and Linux logs "i2c_hid_acpi ...: failed to fetch HID descriptor:
+-110". Power off and on is fine. Only removing all power (charger out,
+power button held 30-60 s) brings them back. The touchscreen (222A:5554,
+on the keyboard's bus) is unaffected. None of Omarchy's patches (7.3-75)
+touch i2c-hid-core.c.
+
+Restarts on BIOS 300, kernel 7.3.0-n1x2:
+- stock i2c-hid, probed late (~3.3 s, from the root file system): dead
+  in GRUB and Linux;
+- stock i2c-hid, probed early (~1.1 s, from the initramfs): dead in
+  GRUB and Linux;
+- no SET_POWER(SLEEP) in i2c_hid_core_shutdown(), probed late: GRUB
+  works, Linux dead (the devices are gone by the probe);
+- no SET_POWER(SLEEP) at shutdown, probed early: 3 of 3 restarts fine.
+So it takes both: this patch, and i2c-hid loaded from the initramfs,
+which scripts/install.sh sets up on the P16.
+
+Add I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN, which skips the SET_POWER(SLEEP)
+in i2c_hid_core_shutdown() (the IRQ is still freed and shutdown_tail
+still runs), and set it for the three devices. Suspend and remove still
+put them to sleep. The keyboard's and the ASUS device's IDs are shared
+with other ASUS laptops (Zenbook, Vivobook), which then also skip that
+command at shutdown; power goes away right after it, so they lose
+nothing. 0x4543's define comes from Omarchy's 1116; the touchpad's
+I2C_DEVICE_ID_PIXART_4F01 is new.
+
+Drop it when upstream has an equivalent fix (then build.sh's patch -N
+fails on it), or when ASUS firmware no longer wedges on a restart.
+
+Signed-off-by: Brandon Sneed <brandon@redf.net>
+---
+ drivers/hid/hid-ids.h              |  1 +
+ drivers/hid/i2c-hid/i2c-hid-core.c | 16 +++++++++++++++-
+ 2 files changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/hid/hid-ids.h b/drivers/hid/hid-ids.h
+index 068ebfe..aa22e30 100644
+--- a/drivers/hid/hid-ids.h
++++ b/drivers/hid/hid-ids.h
+@@ -1212,6 +1212,7 @@
+ #define USB_DEVICE_ID_PIXART_OPTICAL_TOUCH_SCREEN	0x8001
+ #define USB_DEVICE_ID_PIXART_OPTICAL_TOUCH_SCREEN1	0x8002
+ #define USB_DEVICE_ID_PIXART_OPTICAL_TOUCH_SCREEN2	0x8003
++#define I2C_DEVICE_ID_PIXART_4F01			0x4f01
+ 
+ #define USB_VENDOR_ID_PLAYDOTCOM	0x0b43
+ #define USB_DEVICE_ID_PLAYDOTCOM_EMS_USBII	0x0003
+diff --git a/drivers/hid/i2c-hid/i2c-hid-core.c b/drivers/hid/i2c-hid/i2c-hid-core.c
+index a61fd1d..f63362d 100644
+--- a/drivers/hid/i2c-hid/i2c-hid-core.c
++++ b/drivers/hid/i2c-hid/i2c-hid-core.c
+@@ -52,6 +52,7 @@
+ #define I2C_HID_QUIRK_NO_SLEEP_ON_SUSPEND	BIT(5)
+ #define I2C_HID_QUIRK_DELAY_WAKEUP_AFTER_RESUME BIT(6)
+ #define I2C_HID_QUIRK_RE_POWER_ON		BIT(7)
++#define I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN	BIT(8)
+ 
+ /* Command opcodes */
+ #define I2C_HID_OPCODE_RESET			0x01
+@@ -155,6 +156,18 @@ static const struct i2c_hid_quirks {
+ 		 I2C_HID_QUIRK_DELAY_WAKEUP_AFTER_RESUME },
+ 	{ I2C_VENDOR_ID_BLTP, I2C_PRODUCT_ID_BLTP7853,
+ 		I2C_HID_QUIRK_NO_IRQ_AFTER_RESET },
++	/*
++	 * The ASUS ProArt P16 H7607BA's keyboard, ASUS HID device and touchpad
++	 * (touchpad firmware V1.26.0918.1) stop answering after a warm reboot
++	 * that sent them SET_POWER(SLEEP), until the laptop loses all power.
++	 * They also have to be probed early in boot (i2c-hid in the initramfs).
++	 */
++	{ USB_VENDOR_ID_ASUSTEK, USB_DEVICE_ID_ASUSTEK_I2C_ZENBOOK_KEYBOARD,
++		I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN },
++	{ USB_VENDOR_ID_ASUSTEK, USB_DEVICE_ID_ASUSTEK_I2C_VIVOBOOK_KEYBOARD,
++		I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN },
++	{ USB_VENDOR_ID_PIXART, I2C_DEVICE_ID_PIXART_4F01,
++		I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN },
+ 	{ 0, 0 }
+ };
+ 
+@@ -1357,7 +1370,8 @@ void i2c_hid_core_shutdown(struct i2c_client *client)
+ {
+ 	struct i2c_hid *ihid = i2c_get_clientdata(client);
+ 
+-	i2c_hid_set_power(ihid, I2C_HID_PWR_SLEEP);
++	if (!(ihid->quirks & I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN))
++		i2c_hid_set_power(ihid, I2C_HID_PWR_SLEEP);
+ 	free_irq(client->irq, ihid);
+ 
+ 	i2c_hid_core_shutdown_tail(ihid);
+-- 
+2.43.0
+

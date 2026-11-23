@@ -91,3 +91,42 @@ fails "0001 on a tree that has it (7.3.2) fails the build" apply_patch "$K" "$M"
 # (patch leaves its .rej files; the build stops there anyway)
 eq "0001 on a tree that has it is not reverted" "" "$(diff -r -x '*.rej' "$T/mt7925-fixed" "$MT")"
 unset -f irq_map
+
+# 0002, the i2c-hid quirk for the ProArt P16's keyboard and touchpad, on excerpts of the two files
+# after Omarchy's patches (which leave i2c-hid-core.c alone; 1116 adds 0x4543 to hid-ids.h).
+Q=patches/ubuntu/0002-hid-i2c-hid-no-sleep-on-shutdown-quirk-for-the-proart-p16.patch
+H=$K/drivers/hid
+eq "0002: not upstream" 1 "$(grep -c '^n1x-kernel-ubuntu: not upstream\.' "$Q")"
+eq "0002: why we carry it" 1 "$(grep -c '^Why we carry it: ' "$Q")"
+eq "0002: the test matrix" 4 "$(grep -c -e '^- stock i2c-hid, probed late' -e '^- stock i2c-hid, probed early' \
+	-e '^- no SET_POWER(SLEEP) in i2c_hid_core_shutdown(), probed late' -e '^- no SET_POWER(SLEEP) at shutdown, probed early' "$Q")"
+shutdown_fn() { sed -n '/^void i2c_hid_core_shutdown(struct i2c_client \*client)$/,/^}$/p' "$H/i2c-hid/i2c-hid-core.c"; }
+suspend_fn() { sed -n '/^static int i2c_hid_core_suspend(/,/^}$/p' "$H/i2c-hid/i2c-hid-core.c"; }
+quirk_table() { sed -n '/^} i2c_hid_quirks\[\] = {$/,/^};$/p' "$H/i2c-hid/i2c-hid-core.c"; }
+eq "0002 fixture: shutdown puts every device to sleep" "	i2c_hid_set_power(ihid, I2C_HID_PWR_SLEEP);" \
+	"$(shutdown_fn | grep -F 'i2c_hid_set_power(')"
+suspend_was=$(suspend_fn)
+eq "0002 applies after Omarchy" 0 "$(apply_patch "$K" "$Q" >/dev/null 2>&1; echo $?)"
+eq "0002: the quirk is the next free bit" "#define I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN	BIT(8)" \
+	"$(grep -F 'I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN	' "$H/i2c-hid/i2c-hid-core.c" | head -1)"
+eq "0002: BIT(8) was free" 1 "$(grep -c 'BIT(8)' "$H/i2c-hid/i2c-hid-core.c")"
+eq "0002: shutdown skips SET_POWER(SLEEP) with the quirk" \
+	"if (!(ihid->quirks & I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN)) i2c_hid_set_power(ihid, I2C_HID_PWR_SLEEP);" \
+	"$(shutdown_fn | grep -A1 -F 'I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN' | paste -sd' ' - | tr -s '\t ' ' ' | sed 's/^ //')"
+eq "0002: shutdown still frees the IRQ and runs shutdown_tail" 2 \
+	"$(shutdown_fn | grep -c -e '^	free_irq(client->irq, ihid);$' -e '^	i2c_hid_core_shutdown_tail(ihid);$')"
+eq "0002: suspend is unchanged" "$suspend_was" "$(suspend_fn)"
+eq "0002: the quirk is used only at shutdown" 1 "$(grep -c 'quirks & I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN' "$H/i2c-hid/i2c-hid-core.c")"
+eq "0002: quirk entries for the keyboard, the ASUS HID device and the touchpad" \
+	"USB_VENDOR_ID_ASUSTEK USB_DEVICE_ID_ASUSTEK_I2C_ZENBOOK_KEYBOARD|USB_VENDOR_ID_ASUSTEK USB_DEVICE_ID_ASUSTEK_I2C_VIVOBOOK_KEYBOARD|USB_VENDOR_ID_PIXART I2C_DEVICE_ID_PIXART_4F01" \
+	"$(quirk_table | awk '/^\t\{ / {id = $2 " " $3; next} /^\t\tI2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN \},$/ {print id}' | tr -d , | paste -sd'|' -)"
+eq "0002: the entries go at the end, before the terminator" "	{ 0, 0 }" "$(quirk_table | tail -2 | head -1)"
+# The IDs, as i2c_hid_lookup_quirk compares them with hid->vendor and hid->product.
+eq "0002: the IDs are 0B05:4B42, 0B05:4543 and 093A:4F01" "0x0b05 0x4b42 0x4543 0x093a 0x4f01" \
+	"$(for d in USB_VENDOR_ID_ASUSTEK USB_DEVICE_ID_ASUSTEK_I2C_ZENBOOK_KEYBOARD USB_DEVICE_ID_ASUSTEK_I2C_VIVOBOOK_KEYBOARD USB_VENDOR_ID_PIXART I2C_DEVICE_ID_PIXART_4F01; do
+		awk -v d="$d" '$1 == "#define" && $2 == d {print $3}' "$H/hid-ids.h"; done | paste -sd' ' -)"
+cp -R "$H" "$T/hid-fixed"
+fails "0002 on a tree that has it fails the build" apply_patch "$K" "$Q"
+eq "0002 on a tree that has it is not reverted" "" "$(diff -r -x '*.rej' -x '*.orig' "$T/hid-fixed" "$H")"
+unset -f shutdown_fn suspend_fn quirk_table
+unset suspend_was

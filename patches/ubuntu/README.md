@@ -7,6 +7,7 @@ Kernel patches this packaging needs on top of Omarchy's. `scripts/build.sh` appl
 | Patch | What | Drop when |
 |---|---|---|
 | `0001-mt7925-fix-reset-panic-caused-by-the-wm2-rx-irq-mask.patch` | Upstream c182bfe944eb (in 7.3.2 as 3c287de98388, CVE-2026-99560), unchanged. kernel.org 7.3 panics in `mt7925e_mac_reset()` on every MT7925 chip reset (NULL `napi_disable()`), which hung a ProArt P16 when its Wi-Fi reset after an MCU timeout while roaming. Omarchy carries no mt76 patches. Verified on the P16: [docs/mt7925-reset-panic.md](../../docs/mt7925-reset-panic.md). | The base is >= 7.3.2 |
+| `0002-hid-i2c-hid-no-sleep-on-shutdown-quirk-for-the-proart-p16.patch` | Ours, not upstream (still to be reported to linux-input). Adds `I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN` and sets it for the ProArt P16's keyboard (0B05:4B42), ASUS HID device (0B05:4543) and touchpad (093A:4F01): since touchpad firmware V1.26.0918.1, a restart after `i2c_hid_core_shutdown()`'s SET_POWER(SLEEP) leaves all three dead, in GRUB too, until the laptop loses all power. It takes this and the early i2c-hid load `install.sh` sets up; the test matrix is in the patch and in [docs/i2c-hid-warm-reboot.md](../../docs/i2c-hid-warm-reboot.md). Omarchy carries no i2c-hid-core.c changes; 0x4543's define is from its 1116. | Upstream has an equivalent fix, or ASUS firmware no longer wedges |
 
 What Ubuntu's user space needs is config, in `config/n1x.config`.
 
