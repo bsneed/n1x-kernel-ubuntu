@@ -110,5 +110,5 @@ failure leaves a consistent 620 install that `--remove` can be run on again.
   NVIDIA modules from there.
 - **This kernel**: a new Omarchy pin or kernel.org version, a `patches/ubuntu` patch or a
   config change goes with `N1X_REVISION` raised in `sources`. Each revision is a new package
-  name (`linux-image-7.3.0-n1x2`), so it installs next to the previous one, as Ubuntu's
+  name (`linux-image-7.3.0-n1x5`), so it installs next to the previous one, as Ubuntu's
   kernels do.
