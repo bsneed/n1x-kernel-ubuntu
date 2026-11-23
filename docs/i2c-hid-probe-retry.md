@@ -2,8 +2,8 @@
 
 What `patches/ubuntu/0002` fixes on the ProArt P16, how it works, and how to read what it logs.
 It is in kernel 7.3.0-n1x5. **Status:** built and tested off the hardware (it compiles with
-`W=1` without warnings, and `tests/t-patch.sh` checks the patched source); not yet verified on
-the P16 itself.
+`W=1` without warnings, and `tests/t-i2c-hid-retry.sh` runs the patched code against a fake
+device: every state, error and teardown path below); not yet verified on the P16 itself.
 
 ## The bug
 
