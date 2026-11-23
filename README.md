@@ -181,7 +181,7 @@ On the laptop, with the packages in `out/` (copied there, or built there):
 ```sh
 sudo bash scripts/install.sh
 sudo reboot                      # boots 7.3.0-n1x2 once
-bash scripts/check.sh            # kernel, USB4, NVIDIA
+bash scripts/check.sh            # kernel, USB4, NVIDIA, P16 keyboard and touchpad
 sudo bash scripts/install.sh --default   # after a good boot: make it GRUB's default
 ```
 
