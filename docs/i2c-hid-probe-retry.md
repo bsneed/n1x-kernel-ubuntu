@@ -4,8 +4,9 @@ What `patches/ubuntu/0002` fixes on the ProArt P16, how it works, and how to rea
 It is in kernel 7.3.0-n1x5. **Status:** built and tested off the hardware (it compiles with
 `W=1` without warnings, and `tests/t-i2c-hid-retry.sh` runs the patched code against a fake
 device: every state, error and teardown path below). On the P16 it works as designed, but its
-first 120 s window was too short ([Tested on the P16](#tested-on-the-p16)); it now retries for
-300 s, which is not yet verified there.
+first 120 s window was too short, and a device that sent a corrupted report descriptor counted
+as up ([Tested on the P16](#tested-on-the-p16)). It now retries for 300 s and retries a
+rejected report descriptor too; neither is verified there yet.
 
 ## The bug
 
@@ -66,6 +67,27 @@ on the P16 is exactly `ASUS`, and `product_name` containing `H7607BA`), a probe 
   descriptor fetch itself times out, no RESET is sent until a fetch has worked, and a retry
   starts straight at the address check; the ACPI tables give no other way to find the register.
 - A retry that brings the device up enables its wakeup again, if it was enabled.
+- A device can also answer before it is ready, with a report descriptor that is cut short or
+  zeros. Stock `hid_add_device()` adds the HID device anyway: it doesn't parse the descriptor,
+  the driver's probe does (`hid_open_report()`), and that probe's failure doesn't reach
+  `hid_add_device()`. So the probe counts as a success and the device stays dead. On the P16,
+  0002 therefore checks the descriptor in `i2c_hid_parse()`, right after reading it and before
+  `hid_add_device()` keeps it: every item must fit and be a short item, and the collections
+  must open and close in balance, with at least one. These are the structural checks of 7.3's
+  `hid_parse_collections()`; "at least one collection" is stricter than it (an all-zero
+  descriptor parses, but nothing can use it). If the check fails, the HID device is not added,
+  the error is -EBADMSG (-74), which nothing else on that path returns, and it is retried like a
+  timeout, within the same 300 s. A descriptor that passes is kept exactly as stock keeps it.
+  Not checked: what `hid_open_report()` rejects in a well-formed descriptor (a report size over
+  256 bits, an invalid report ID, a global stack under- or overflow, nested delimiters); such
+  a device is added as before, and its driver's probe fails as before. The check runs on the
+  descriptor as read, before any driver's `report_fixup()`. Of the fixups in 7.3, the only one
+  for these four devices is hid-asus's `QUIRK_FIX_NOTEBOOK_REPORT` (keyboard and ASUS device),
+  which changes one Logical Maximum in place, so no fixup could have made a rejected
+  descriptor valid.
+- Nothing else in registering the HID device is retried: `hid_add_device()`'s `-ENODEV` (the
+  HID core ignores the device), and a failure of `device_add()`, fail the probe as before, and
+  an error after the HID device was added (the QTEC re-power-on) is stock's.
 - Unbind/remove and shutdown cancel the work and wait for it. For a device that never came up
   they skip what assumes a working device: the sleep command and `free_irq()`, and at shutdown
   also `shutdown_tail` (i2c-hid-acpi's D3cold), as stock never calls shutdown on a device whose
@@ -74,7 +96,7 @@ on the P16 is exactly `ASUS`, and `product_name` containing `H7607BA`), a probe 
 
 ## Its log lines
 
-All three come from the device, so `journalctl -k -b | grep i2c_hid_acpi` shows them, e.g.
+All of them come from the device, so `journalctl -k -b | grep i2c_hid_acpi` shows them, e.g.
 `i2c_hid_acpi i2c-3030443150435341:00: ...`. Before the first one, stock i2c-hid's
 `failed to fetch HID descriptor: -110` and `Failed to fetch the HID Descriptor` still appear,
 and each failed retry logs them again.
@@ -84,15 +106,37 @@ and each failed retry logs them again.
   Without 0002 the device would now be dead until the next boot.
 - `probe retry N succeeded, M ms after the probe failed` (info): retry N brought it up, M ms
   after that first failure. The keyboard or touchpad works from here.
+- `report descriptor rejected (unbalanced collection, N bytes)` (error): the report
+  descriptor the device sent fails the check above (the reason is one of `long item`,
+  `item past the end`, `end of a collection never opened`, `unbalanced collection`,
+  `no collection`). Stock's `can't add hid device: -74` follows. On the first probe, the
+  `probe failed (-74), ...` line then says the retries started; on a retry:
+- `probe retry N read a bad report descriptor, retrying` (info): retry N was rejected that way
+  and the next one is queued. Other failed retries log only stock's lines.
 - `giving up after N probe retries in M ms: -110` (warning): it never answered within the
   300 s, or a retry failed with an error that isn't retried (the error it ends with). M can be a
-  little over 300000: the last retry may start at 300 s and then time out. The device stays
-  bound with nothing set up. Rebinding it starts a new round of retries, e.g. for the touchpad:
+  little over 300000: the last retry may start at 300 s and then time out.
 
-  ```sh
-  echo i2c-3030443150435341:00 | sudo tee /sys/bus/i2c/drivers/i2c_hid_acpi/unbind
-  echo i2c-3030443150435341:00 | sudo tee /sys/bus/i2c/drivers/i2c_hid_acpi/bind
-  ```
+## After a give-up
+
+A device that gave up stays bound to `i2c_hid_acpi` with nothing set up (no HID device, no
+IRQ). A plain `bind` of it fails with `-EBUSY`, because it is still bound. To try again by hand,
+unbind it, then bind it: that runs probe again and, if it fails, a new round of retries. For
+the touchpad:
+
+```sh
+echo i2c-3030443150435341:00 | sudo tee /sys/bus/i2c/drivers/i2c_hid_acpi/unbind
+echo i2c-3030443150435341:00 | sudo tee /sys/bus/i2c/drivers/i2c_hid_acpi/bind
+```
+
+`ls /sys/bus/i2c/drivers/i2c_hid_acpi/` lists the names of the others (`i2c-MKB0001:...`,
+`i2c-ASTH0001:...`, `i2c-313030304B544C49:...`).
+
+Making a plain `bind` work, by releasing the driver when the retries give up, is deferred: the
+retry work can't call `device_release_driver()`, because that takes the device lock, which
+remove holds while it waits for the work (`cancel_delayed_work_sync()`), so the two would
+deadlock. Doing it safely needs a work item outside the driver's data, holding a reference to
+the device, which is more machinery than one manual step is worth for now.
 
 ## Tested on the P16
 
@@ -108,6 +152,15 @@ So 0002 now retries for 300 s, keeping the 5 s interval: well past the latest de
 (166 s of uptime) and as long as the rebinds by hand that worked, while a device that is really
 gone still gives up within 5 minutes.
 
+With the 300 s window, on a bad boot, the retries brought up the keyboard (5.5 s), the
+touchscreen (12.6 s) and the touchpad (20.8 s). But the ASUS device (ASTH0001, 0B05:4543)
+"came up" at 7.1 s with a corrupted report descriptor: hid-generic logged
+`unknown main item tag 0x0` ten times and `unbalanced collection at end of report
+description`, then `probe with driver hid-generic failed with error -22`. The device was half
+ready; i2c-hid counted it as up, because `hid_add_device()` returned 0, and its hotkeys stayed
+dead with no further retry. Unbinding and binding it by hand then got -110, and the retry
+brought it up cleanly 5.4 s after that. Hence the report descriptor check above.
+
 ## install.sh and check.sh
 
 - `install.sh` (install and `--remove`), on the P16, deletes
@@ -121,7 +174,10 @@ gone still gives up within 5 minutes.
 
 ## Still to do
 
-- Verify the 300 s window on the P16: several cold boots and restarts with n1x5 (restarts on the
-  charger hit it most), watching for the log lines above and checking that the keyboard,
-  touchpad and ASUS device come back without a rebind.
+- Verify the 300 s window and the report descriptor check on the P16: several cold boots and
+  restarts with n1x5 (restarts on the charger hit it most), watching for the log lines above
+  and checking that the keyboard, touchpad and ASUS device (its hotkeys) come back without a
+  rebind.
+- A plain `bind` after a give-up ([After a give-up](#after-a-give-up)), if the manual unbind
+  turns out to be needed in practice.
 - Report it to linux-input.

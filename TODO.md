@@ -87,10 +87,15 @@ limitation into the README.
   (7.3.0-n1x5) retries the probe in the background, 5 s apart for up to 300 s
   ([docs/i2c-hid-probe-retry.md](docs/i2c-hid-probe-retry.md)). On rtx24 it worked as designed
   with 120 s, but on a bad restart the devices gave up at 118.6 s and answered at 140-166 s of
-  uptime, hence 300 s. Still to do: verify the 300 s window on rtx24 over several cold boots and
-  restarts (look for `probe retry N succeeded`), check that
-  `install.sh` removed `/etc/dracut.conf.d/50-i2c-hid-early.conf` there, and report it to
-  linux-input.
+  uptime, hence 300 s. With 300 s, ASTH0001 "came up" with a corrupted report descriptor
+  (hid-generic: `unbalanced collection`, -22) and its hotkeys stayed dead, so on the P16 0002
+  now checks the report descriptor's structure before adding the HID device and retries a bad
+  one. Still to do: verify the 300 s window and the descriptor check on rtx24 over several cold
+  boots and restarts (look for `probe retry N succeeded` and `report descriptor rejected`),
+  check that `install.sh` removed `/etc/dracut.conf.d/50-i2c-hid-early.conf` there, and report
+  it to linux-input. Deferred: after a give-up the device stays bound, so recovering it by hand
+  takes unbind then bind (a plain bind gets -EBUSY); releasing the driver from the retry work
+  would deadlock against remove.
 - [ ] **BIOS update** once ASUS publishes something newer than H7607BA.300 for this model (none
   as of 2026-11-21). The BIOS-300 baseline (ACPI dump and both `check.sh` outputs) is in
   `/home/bsneed/work/bios-300-baseline/` on rtx24 and spark1. Diff the new tables for `_PRW`, then

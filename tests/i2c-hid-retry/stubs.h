@@ -24,6 +24,7 @@
 #define EEXIST		17
 #define ENODEV		19
 #define EINVAL		22
+#define EBADMSG		74
 #define ETIMEDOUT	110
 #define EPROBE_DEFER	517
 
@@ -67,8 +68,9 @@ static struct world {
 	unsigned int timeout_ms;	/* what a transfer that times out takes */
 	unsigned long quirks;		/* i2c_hid_lookup_quirk() */
 	struct script power_up, addr, desc, reset, irq, add, set_power, follower_reg;
+	struct script rdesc;		/* which fake_rdescs[] each report descriptor read gets */
 	char bad[512];			/* misuses, comma-separated */
-	char log[8192];			/* "level: message|" for dev_info/warn/err, hid_err */
+	char log[32768];		/* "level: message|" for dev_info/warn/err, hid_err */
 	char trace[8192];		/* the calls of each attempt, space-separated */
 	char delays[2048];		/* each queue_delayed_work delay, in ms */
 	char starts[2048];		/* each power-up, in ms after the failure (retries only) */
@@ -76,6 +78,7 @@ static struct world {
 	bool irq_requested;
 	int irq_depth, irq_requests, irq_frees;
 	int adds, destroys, ups, downs, allocs, frees, cancels;
+	int rdesc_reads, bound;		/* report descriptor reads; hids a driver bound to */
 	int suspends, forced_suspends, resumes, set_powers, tails, restores, follower_removes;
 	unsigned int sleeps_ms;
 } W;
@@ -172,6 +175,8 @@ static inline void *devm_kzalloc(struct device *dev, size_t size, int gfp)
 	(void)dev; (void)gfp;
 	return calloc(1, size);
 }
+static inline void *kzalloc(size_t size, int gfp) { (void)gfp; return calloc(1, size); }
+static inline void kfree(const void *p) { free((void *)p); }
 
 #define I2C_M_RD	0x0001
 #define I2C_M_TEN	0x0010

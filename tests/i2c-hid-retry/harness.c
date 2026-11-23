@@ -74,6 +74,8 @@ static void begin(const char *fmt, ...)
 	fake_desc.wHIDDescLength = cpu_to_le16(sizeof(fake_desc));
 	fake_desc.bcdVersion = cpu_to_le16(0x0100);
 	fake_desc.wCommandRegister = cpu_to_le16(0x0022);
+	fake_desc.wReportDescLength = cpu_to_le16(RDESC_LEN);
+	fake_desc.wReportDescRegister = cpu_to_le16(0x0020);
 	fake_desc.wVendorID = cpu_to_le16(0x093a);
 	fake_desc.wProductID = cpu_to_le16(0x4f01);
 	jiffies = 100000; /* not 0: an elapsed time measured from boot shows */
@@ -152,7 +154,7 @@ static const char *calls(void)
 /* The log lines containing NEEDLE, "|"-separated */
 static const char *log_find(const char *needle)
 {
-	static char out[8192];
+	static char out[32768];
 	const char *p = W.log, *e;
 
 	out[0] = 0;
@@ -180,6 +182,17 @@ static const char *attempt(int n)
 	return out;
 }
 
+/* How many log lines contain NEEDLE */
+static int count_lines(const char *needle)
+{
+	const char *p = W.log, *e;
+	int n = 0;
+
+	for (; (e = strchr(p, '|')); p = e + 1)
+		n += memmem(p, e - p, needle, strlen(needle)) != NULL;
+	return n;
+}
+
 static void check(const char *name, const char *expected, const char *actual)
 {
 	checks++;
@@ -196,11 +209,13 @@ static void checki(const char *name, long expected, long actual)
 
 #include "cases-probe.c"
 #include "cases-teardown.c"
+#include "cases-rdesc.c"
 
 int main(void)
 {
 	cases_probe();
 	cases_teardown();
+	cases_rdesc();
 	printf("DONE\t%d\n", checks);
 	return 0;
 }

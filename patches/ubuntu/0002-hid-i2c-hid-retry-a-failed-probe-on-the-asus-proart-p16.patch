@@ -1,4 +1,4 @@
-From 83f3ed62eb6d10dd6d458c1ad22906a6b540fa3a Mon Sep 17 00:00:00 2001
+From bb356c35c64fd8d119ac8c1426c6f687dbf351ff Mon Sep 17 00:00:00 2001
 From: Brandon Sneed <brandon@redf.net>
 Date: Mon, 23 Nov 2026 10:30:00 -0800
 Subject: [PATCH] HID: i2c-hid: retry a failed probe in the background on the
@@ -30,7 +30,8 @@ So on a machine in a DMI table that holds only the P16 H7607BA
 (sys_vendor containing "ASUS", product_name containing "H7607BA"), a
 probe that fails with -ETIMEDOUT or -ENXIO (in the address check, the
 HID descriptor fetch, or the power-up, reset and report descriptor read
-of registering the hid) does not fail: probe returns 0 with the IRQ
+of registering the hid), or reads a report descriptor that is cut short
+or garbage (below), does not fail: probe returns 0 with the IRQ
 freed, the hid not added, the device powered down and its wakeup
 disabled (nothing would handle its wake IRQ), and a delayed work on
 system_freezable_wq repeats what probe does. The first retry starts
@@ -54,22 +55,52 @@ stop the work the same way and resume it afterwards on the same
 schedule (jiffies don't count the time asleep). Every other machine,
 every other error, and panel followers behave as before.
 
+A device can also answer before it is ready, with a report descriptor
+that is cut short or zeros. hid_add_device() adds the hid anyway (it
+doesn't parse the descriptor; the driver's probe does, and its failure
+doesn't reach hid_add_device()), so the probe counts as a success and
+the device stays dead. So on those machines i2c_hid_parse() checks the
+descriptor's structure as hid_open_report() will: every item fits and
+is short, the collections balance, and there is at least one (an
+all-zero descriptor parses, but nothing can use it). If it fails, the
+hid is not added and the error is -EBADMSG, which nothing else on that
+path returns; that is retried like a timeout. It logs:
+  report descriptor rejected (<why>, N bytes)
+  probe retry N read a bad report descriptor, retrying
+A descriptor that passes registers exactly as before; the check reads
+it and changes nothing. Only the structure is checked: a descriptor
+with valid structure that hid_open_report() still rejects (a bad
+report size, say) is added as before.
+
 Why 300 s: with this patch retrying for 120 s, on a restart with the
 charger in, the keyboard, the touchpad and the ASUS device all gave up
 at 118.6 s after 23 retries, then answered on their own: the keyboard
 at about 140 s of uptime, the touchpad at 154 s, the ASUS device at
 166 s. The touchscreen, on the keyboard's bus, came up at 5.2 s.
 
+Why the descriptor check: with the 300 s window, on a bad boot, the
+retries brought up the keyboard (5.5 s), the touchscreen (12.6 s) and
+the touchpad (20.8 s), but the ASUS device "came up" at 7.1 s with a
+corrupted report descriptor: hid-generic logged "unknown main item tag
+0x0" ten times and "unbalanced collection at end of report
+description", then "probe with driver hid-generic failed with error
+-22", and its hotkeys stayed dead with no further retry. Unbinding and
+binding it by hand got -110, and the retry then brought it up cleanly
+5.4 s later.
+
+A device that gave up stays bound to its driver with no hid: to try
+again by hand, unbind it and bind it (a plain bind gets -EBUSY).
+
 Drop it when upstream i2c-hid retries such probes itself (then build.sh's
 patch -N fails on it), or when ASUS firmware answers in time at boot.
 
 Signed-off-by: Brandon Sneed <brandon@redf.net>
 ---
- drivers/hid/i2c-hid/i2c-hid-core.c | 247 ++++++++++++++++++++++++++++-
- 1 file changed, 244 insertions(+), 3 deletions(-)
+ drivers/hid/i2c-hid/i2c-hid-core.c | 307 ++++++++++++++++++++++++++++-
+ 1 file changed, 304 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/hid/i2c-hid/i2c-hid-core.c b/drivers/hid/i2c-hid/i2c-hid-core.c
-index a61fd1d..cbbc703 100644
+index a61fd1d..0d1a0a1 100644
 --- a/drivers/hid/i2c-hid/i2c-hid-core.c
 +++ b/drivers/hid/i2c-hid/i2c-hid-core.c
 @@ -24,6 +24,7 @@
@@ -122,13 +153,14 @@ index a61fd1d..cbbc703 100644
  };
  
  static const struct i2c_hid_quirks {
-@@ -158,6 +180,31 @@ static const struct i2c_hid_quirks {
+@@ -158,6 +180,76 @@ static const struct i2c_hid_quirks {
  	{ 0, 0 }
  };
  
 +/*
-+ * Machines on which a probe that fails with -ETIMEDOUT or -ENXIO is retried in
-+ * the background instead of failing for good.
++ * Machines on which a probe that fails with -ETIMEDOUT or -ENXIO, or reads a
++ * report descriptor that i2c_hid_probe_retry_check_rdesc() rejects (-EBADMSG),
++ * is retried in the background instead of failing for good.
 + *
 + * ASUS ProArt P16 H7607BA: its I2C HID devices (keyboard, touchpad,
 + * touchscreen, ASUS HID device) sometimes don't answer for the first minutes
@@ -148,13 +180,76 @@ index a61fd1d..cbbc703 100644
 +
 +static bool i2c_hid_probe_retryable(struct i2c_hid *ihid, int error)
 +{
-+	return ihid->probe_retry && (error == -ETIMEDOUT || error == -ENXIO);
++	return ihid->probe_retry &&
++	       (error == -ETIMEDOUT || error == -ENXIO || error == -EBADMSG);
++}
++
++/*
++ * Check a report descriptor the way hid_open_report() will, as far as its
++ * structure goes: every item fits and is short, and the collections open and
++ * close in balance, at least one of them. A device that isn't ready can send a
++ * descriptor cut short or full of zeros, which hid_add_device() adds anyway:
++ * only the driver's probe fails, and the device stays dead. Returns NULL if it
++ * passes, else what is wrong.
++ */
++static const char *i2c_hid_probe_retry_check_rdesc(const u8 *rdesc,
++						   unsigned int rsize)
++{
++	unsigned int i = 0, size, depth = 0, collections = 0;
++	u8 b;
++
++	while (i < rsize) {
++		b = rdesc[i++];
++		size = BIT(b & 3) >> 1;		/* 0, 1, 2, 3 -> 0, 1, 2, 4 */
++		if ((b >> 4) == HID_ITEM_TAG_LONG)
++			return "long item";
++		if (size > rsize - i)
++			return "item past the end";
++		i += size;
++
++		if (((b >> 2) & 3) != HID_ITEM_TYPE_MAIN)
++			continue;
++		if ((b >> 4) == HID_MAIN_ITEM_TAG_BEGIN_COLLECTION) {
++			depth++;
++			collections++;
++		} else if ((b >> 4) == HID_MAIN_ITEM_TAG_END_COLLECTION) {
++			if (!depth)
++				return "end of a collection never opened";
++			depth--;
++		}
++	}
++
++	if (depth)
++		return "unbalanced collection";
++	if (!collections)
++		return "no collection";
++
++	return NULL;
 +}
 +
  /*
   * i2c_hid_lookup_quirk: return any quirks associated with a I2C HID device
   * @idVendor: the 16-bit vendor ID
-@@ -919,7 +966,7 @@ static int i2c_hid_fetch_hid_descriptor(struct i2c_hid *ihid)
+@@ -803,6 +895,18 @@ static int i2c_hid_parse(struct hid_device *hid)
+ 
+ 	i2c_hid_dbg(ihid, "Report Descriptor: %*ph\n", rsize, rdesc);
+ 
++	if (ihid->probe_retry) {
++		const char *why = i2c_hid_probe_retry_check_rdesc(rdesc, rsize);
++
++		if (why) {
++			dev_err(&client->dev,
++				"report descriptor rejected (%s, %u bytes)\n",
++				why, rsize);
++			ret = -EBADMSG;
++			goto out;
++		}
++	}
++
+ 	ret = hid_parse_report(hid, rdesc, rsize);
+ 	if (ret)
+ 		dbg_hid("parsing report descriptor failed\n");
+@@ -919,7 +1023,7 @@ static int i2c_hid_fetch_hid_descriptor(struct i2c_hid *ihid)
  			dev_err(&ihid->client->dev,
  				"failed to fetch HID descriptor: %d\n",
  				error);
@@ -163,7 +258,7 @@ index a61fd1d..cbbc703 100644
  		}
  	}
  
-@@ -1075,6 +1122,7 @@ static int __i2c_hid_core_probe(struct i2c_hid *ihid)
+@@ -1075,6 +1179,7 @@ static int __i2c_hid_core_probe(struct i2c_hid *ihid)
  	strscpy(hid->phys, dev_name(&client->dev), sizeof(hid->phys));
  
  	ihid->quirks = i2c_hid_lookup_quirk(hid->vendor, hid->product);
@@ -171,7 +266,7 @@ index a61fd1d..cbbc703 100644
  
  	return 0;
  }
-@@ -1227,6 +1275,180 @@ static int i2c_hid_core_register_panel_follower(struct i2c_hid *ihid)
+@@ -1227,6 +1332,183 @@ static int i2c_hid_core_register_panel_follower(struct i2c_hid *ihid)
  	return 0;
  }
  
@@ -270,6 +365,9 @@ index a61fd1d..cbbc703 100644
 +	if (ret && i2c_hid_probe_retryable(ihid, ret) &&
 +	    time_before_eq(next, ihid->probe_retry_start +
 +			   msecs_to_jiffies(I2C_HID_PROBE_RETRY_TIMEOUT_MS))) {
++		if (ret == -EBADMSG)
++			dev_info(dev, "probe retry %u read a bad report descriptor, retrying\n",
++				 ihid->probe_retry_count);
 +		ihid->probe_retry_next = next;
 +		i2c_hid_probe_retry_queue(ihid);
 +		return;
@@ -352,7 +450,7 @@ index a61fd1d..cbbc703 100644
  int i2c_hid_core_probe(struct i2c_client *client, struct i2chid_ops *ops,
  		       u16 hid_descriptor_address, u32 quirks)
  {
-@@ -1259,11 +1481,14 @@ int i2c_hid_core_probe(struct i2c_client *client, struct i2chid_ops *ops,
+@@ -1259,11 +1541,14 @@ int i2c_hid_core_probe(struct i2c_client *client, struct i2chid_ops *ops,
  	ihid->client = client;
  	ihid->wHIDDescRegister = cpu_to_le16(hid_descriptor_address);
  	ihid->is_panel_follower = drm_is_panel_follower(&client->dev);
@@ -367,7 +465,7 @@ index a61fd1d..cbbc703 100644
  
  	/* we need to allocate the command buffer without knowing the maximum
  	 * size of the reports. Let's use HID_MIN_BUFFER_SIZE, then we do the
-@@ -1321,6 +1546,8 @@ err_power_down:
+@@ -1321,6 +1606,8 @@ err_power_down:
  	if (!ihid->is_panel_follower)
  		i2c_hid_core_power_down(ihid);
  err_destroy_device:
@@ -376,7 +474,7 @@ index a61fd1d..cbbc703 100644
  	hid_destroy_device(hid);
  err_free_buffers:
  	i2c_hid_free_buffers(ihid);
-@@ -1333,6 +1560,7 @@ void i2c_hid_core_remove(struct i2c_client *client)
+@@ -1333,6 +1620,7 @@ void i2c_hid_core_remove(struct i2c_client *client)
  {
  	struct i2c_hid *ihid = i2c_get_clientdata(client);
  	struct hid_device *hid;
@@ -384,7 +482,7 @@ index a61fd1d..cbbc703 100644
  
  	/*
  	 * If we're a follower, the act of unfollowing will cause us to be
-@@ -1340,13 +1568,14 @@ void i2c_hid_core_remove(struct i2c_client *client)
+@@ -1340,13 +1628,14 @@ void i2c_hid_core_remove(struct i2c_client *client)
  	 */
  	if (ihid->is_panel_follower)
  		drm_panel_remove_follower(&ihid->panel_follower);
@@ -401,7 +499,7 @@ index a61fd1d..cbbc703 100644
  
  	if (ihid->bufsize)
  		i2c_hid_free_buffers(ihid);
-@@ -1357,6 +1586,9 @@ void i2c_hid_core_shutdown(struct i2c_client *client)
+@@ -1357,6 +1646,9 @@ void i2c_hid_core_shutdown(struct i2c_client *client)
  {
  	struct i2c_hid *ihid = i2c_get_clientdata(client);
  
@@ -411,7 +509,7 @@ index a61fd1d..cbbc703 100644
  	i2c_hid_set_power(ihid, I2C_HID_PWR_SLEEP);
  	free_irq(client->irq, ihid);
  
-@@ -1372,6 +1604,9 @@ static int i2c_hid_core_pm_suspend(struct device *dev)
+@@ -1372,6 +1664,9 @@ static int i2c_hid_core_pm_suspend(struct device *dev)
  	if (ihid->is_panel_follower)
  		return 0;
  
@@ -421,7 +519,7 @@ index a61fd1d..cbbc703 100644
  	return i2c_hid_core_suspend(ihid, false);
  }
  
-@@ -1383,6 +1618,9 @@ static int i2c_hid_core_pm_resume(struct device *dev)
+@@ -1383,6 +1678,9 @@ static int i2c_hid_core_pm_resume(struct device *dev)
  	if (ihid->is_panel_follower)
  		return 0;
  
@@ -431,7 +529,7 @@ index a61fd1d..cbbc703 100644
  	return i2c_hid_core_resume(ihid);
  }
  
-@@ -1394,6 +1632,9 @@ static int i2c_hid_core_pm_restore(struct device *dev)
+@@ -1394,6 +1692,9 @@ static int i2c_hid_core_pm_restore(struct device *dev)
  	if (ihid->is_panel_follower)
  		return 0;
  

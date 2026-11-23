@@ -96,9 +96,15 @@ static inline bool cancel_delayed_work_sync(struct delayed_work *dw)
 
 /* --- hid ------------------------------------------------------------------------------------------- */
 #define HID_MIN_BUFFER_SIZE	64
+#define HID_MAX_DESCRIPTOR_SIZE	4096
 #define HID_STAT_ADDED		BIT(0)
 #define BUS_I2C			0x18
-struct hid_ll_driver { int dummy; };
+#define HID_ITEM_TAG_LONG	15
+#define HID_ITEM_TYPE_MAIN	0
+#define HID_MAIN_ITEM_TAG_BEGIN_COLLECTION	10
+#define HID_MAIN_ITEM_TAG_END_COLLECTION	12
+struct hid_device;
+struct hid_ll_driver { int (*parse)(struct hid_device *hid); };
 struct hid_device {
 	struct device dev;
 	unsigned int status;
@@ -108,8 +114,27 @@ struct hid_device {
 	char name[128], phys[64];
 	void *driver_data;
 	const struct hid_ll_driver *ll_driver;
+	u8 *dev_rdesc;
+	unsigned int dev_rsize;
 };
+static bool fake_core_rejects(const u8 *rdesc, unsigned int rsize); /* driver.h */
 static inline struct hid_device *hid_allocate_device(void) { return calloc(1, sizeof(struct hid_device)); }
+/* 7.3's: keep a copy of the report descriptor for hid_add_device() (its only caller is parse) */
+static inline int hid_parse_report(struct hid_device *hid, const u8 *start, unsigned int size)
+{
+	if (hid->dev_rdesc)
+		bad("report-descriptor-leaked");
+	hid->dev_rdesc = malloc(size);
+	memcpy(hid->dev_rdesc, start, size);
+	hid->dev_rsize = size;
+	return 0;
+}
+/*
+ * 7.3's hid_add_device(): W.add stands for what fails before or in the ll driver's parse (hid_ignore()'s
+ * -ENODEV, or the power-up, reset or report descriptor read timing out); then the real parse runs. Then
+ * device_add(), in which a driver (hid-generic) binds and parses the descriptor with hid_open_report():
+ * if that rejects it, the driver's probe fails, which device_add() doesn't return.
+ */
 static inline int hid_add_device(struct hid_device *hid)
 {
 	int ret;
@@ -120,17 +145,27 @@ static inline int hid_add_device(struct hid_device *hid)
 		return -EBUSY;
 	}
 	ret = script_next(&W.add);
-	if (!ret) {
-		hid->status |= HID_STAT_ADDED;
-		W.adds++;
-	}
-	return ret;
+	if (ret)
+		return ret;
+	ret = hid->ll_driver->parse(hid);
+	if (ret)
+		return ret;
+	if (!hid->dev_rdesc)
+		return -ENODEV;
+	hid->status |= HID_STAT_ADDED;
+	W.adds++;
+	if (fake_core_rejects(hid->dev_rdesc, hid->dev_rsize))
+		log_add("err", "probe with driver hid-generic failed with error %d", -EINVAL);
+	else
+		W.bound++;
+	return 0;
 }
 static inline void hid_destroy_device(struct hid_device *hid)
 {
-	(void)hid;
 	if (W.destroys++)
 		bad("hid-destroyed-twice");
+	free(hid->dev_rdesc);
+	hid->dev_rdesc = NULL;
 }
 #define strscpy(d, s, n) snprintf(d, n, "%s", s)
 

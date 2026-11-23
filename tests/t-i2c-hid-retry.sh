@@ -32,9 +32,11 @@ static const struct dmi_system_id i2c_hid_probe_retry_dmi[] = {
 EOF
 cat >"$IHR/funcs.list" <<'EOF'
 static bool i2c_hid_probe_retryable(
+static const char *i2c_hid_probe_retry_check_rdesc(
 static int i2c_hid_probe_address(
 static size_t i2c_hid_encode_command(
 static int i2c_hid_init_irq(
+static int i2c_hid_parse(
 static int i2c_hid_fetch_hid_descriptor(
 static int i2c_hid_core_power_up(
 static void i2c_hid_core_power_down(
@@ -67,7 +69,8 @@ done
 if [[ -z $ihr_cc ]]; then
 	skip "retry harness" "no C compiler (cc, gcc or clang)"
 else
-	eq "retry harness: builds with $ihr_cc" "" "$("$ihr_cc" -std=gnu11 -Wall -Wno-unused-function \
+	# -Wno-pointer-sign, as the kernel builds (scripts/Makefile.warn): i2c_hid_parse() passes a char * as u8 *
+	eq "retry harness: builds with $ihr_cc" "" "$("$ihr_cc" -std=gnu11 -Wall -Wno-unused-function -Wno-pointer-sign \
 		-Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Werror=int-conversion \
 		-I tests/i2c-hid-retry -I "$IHR" -o "$IHR/harness" tests/i2c-hid-retry/harness.c 2>&1)"
 	if [[ -x $IHR/harness ]]; then
