@@ -65,18 +65,27 @@ limitation into the README.
   and Wi-Fi WoWLAN do not. BIOS 300's DSDT gives the PCIe root ports (`RP0`) `_S0W 0x04` but no
   `_PRW` (see seankd3/asus-proart-p16-rtx-spark-linux#10). Try an SSDT override from the initramfs
   that adds `_PRW`, then retest Wi-Fi and dock wake.
-- [ ] **Closing the lid doesn't suspend.** ACPI `LID0` (PNP0C0D) always reads "open": its `_LID`
-  returns `EC0.GLID()`, an EC call over FF-A, and no lid event has ever reached logind on rtx24.
-  With the lid closed, the EC flashes the front white LED (its sleep indicator) while Linux stays
-  awake. Workaround: suspend from the menu or the power button first. Next: query `GLID` with
-  proart-p16-linux's `tools/ffa-probe.sh` lid open vs closed, to see whether the EC answers
-  wrongly or Linux reads it wrongly. Possibly the same EC event gap as the missing `_PRW` above.
-- [ ] **Touchpad firmware V1.26.0918.1** (installed by Windows 2026-11-22). The first Linux
-  boots afterwards had no internal keyboard or touchpad (`i2c_hid_acpi ... failed to fetch HID
-  descriptor: -110` on MKB0001 and the touchpad; the Asus keyboard handshake returned zeros).
-  A boot through Windows, then a cold boot, cleared it. If it comes back: try
-  `modprobe -r i2c_hid_acpi; modprobe i2c_hid_acpi`, and check whether Leon's libinput quirk and
-  haptics still fit the new firmware.
+- [x] **Closing the lid suspends** (2026-11-22). BIOS 300's EC helpers (`RWEC` & co.) read their
+  own request back (`Local0 = FFAC = Local0` with fields on the request buffer), so `LID0._LID` is
+  always "open" and lid events never arrive. proart-p16-linux's `proart_battery` 1.9 reads EC
+  register 0xE0 over FF-A and registers an "ASUS ProArt P16 Lid Switch" when ACPI's lid is broken
+  (BIOS .303 reportedly fixes the AML). Sent to Leon as LeonMarzollDev/proart-p16-linux#6; installed
+  on rtx24 via DKMS for all kernels. Opening the lid wakes it.
+- [ ] **s2idle wakes on its own with the lid closed.** Every wake, lid-open included, comes in on
+  IRQ 72 (`mt-eint` GPIO 20, "ACPI:Event", the EC event line); logind re-suspends after its 30 s
+  holdoff. Seen 2 times in 4 runs, both on AC (charger events suspected), none on battery. Same as
+  omarchy issue #18755 on BIOS .303; omarchy-pkgs#1958 works on coordinated s2idle. Costs battery,
+  not safety.
+- [ ] **SD reader warning on resume:** `Trying to free already-free IRQ 322` (mmc0, `sdhci-pci`, via
+  pciehp on resume). Predates proart_battery 1.9; the reader comes back. Kernel side.
+- [ ] **Internal keyboard and touchpad stop working after touchpad firmware V1.26.0918.1**
+  (installed by Windows 2026-11-22). After some Linux sessions they are dead on the next boot
+  (`i2c_hid_acpi ... failed to fetch HID descriptor: -110` on MKB0001, ASTH0001 and the touchpad),
+  and also dead in GRUB, so the controllers are stuck below Linux; a cold boot or reloading
+  `i2c_hid_acpi` doesn't help. Booting Windows and restarting into Ubuntu brings them back
+  (`grub-reboot "Windows Boot Manager (on /dev/nvme0n1p1)"`). Seen after a warm reboot at 16:58
+  and 17:54; a shutdown + cold boot at 17:12 was fine. Suspend/resume alone doesn't trigger it.
+  Find what Linux sends that wedges them, and what Windows sends that unwedges them.
 - [ ] **BIOS update** once ASUS publishes something newer than H7607BA.300 for this model (none
   as of 2026-11-21). The BIOS-300 baseline (ACPI dump and both `check.sh` outputs) is in
   `/home/bsneed/work/bios-300-baseline/` on rtx24 and spark1. Diff the new tables for `_PRW`, then
