@@ -84,7 +84,7 @@ limitation into the README.
   boots and restarts alike, so it is a boot-time probe race, not shutdown (PR #2's shutdown
   quirk and early i2c-hid load didn't help and are gone). The devices are slow, not dead:
   binding `i2c_hid_acpi` by hand 2-3 minutes later brings them back. `patches/ubuntu/0002`
-  (7.3.0-n1x5) retries the probe in the background every 5 s for up to 120 s
+  (7.3.0-n1x5) retries the probe in the background, 5 s apart for up to 120 s
   ([docs/i2c-hid-probe-retry.md](docs/i2c-hid-probe-retry.md)). Still to do: verify it on rtx24
   over several cold boots and restarts (look for `probe retry N succeeded`), check that
   `install.sh` removed `/etc/dracut.conf.d/50-i2c-hid-early.conf` there, and report it to

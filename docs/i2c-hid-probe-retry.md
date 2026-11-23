@@ -52,13 +52,17 @@ doesn't fail:
 - Probe returns 0, so the device stays bound to `i2c_hid_acpi`, but with nothing set up: its
   IRQ freed, the HID device not added, the device powered down.
 - A delayed work (on the freezable system workqueue, so it never blocks probe or boot) then
-  does what probe does every 5 s, for up to 120 s after the failure: power up, a HID RESET,
-  fetch the descriptor, request the IRQ, add the HID device. The RESET goes out only once an
-  earlier attempt read a valid HID descriptor this boot, because the command register it is
-  sent to comes from that descriptor; until then a retry starts straight at the descriptor fetch.
+  does what probe does: power up, a HID RESET, check the address, fetch the descriptor, request
+  the IRQ, add the HID device. The first retry starts 5 s after the failure, and each next one
+  5 s after the previous one started, or right after it if it took longer than that (a
+  timed-out transfer takes 2 s). No retry starts later than 120 s after the failure, so there
+  are at most 24. The RESET goes out only once an earlier attempt read a valid HID descriptor
+  this boot, because the command register it is sent to comes from that descriptor; until then
+  a retry starts straight at the address check.
 - Unbind/remove and shutdown cancel the work and wait for it. For a device that never came up
   they skip what assumes a working device (the sleep command, `free_irq()`). System suspend and
-  hibernation stop the work the same way and start it again on resume, with the same deadline.
+  hibernation stop the work the same way and start it again on resume, on the same schedule
+  (the time asleep doesn't count).
 
 ## Its log lines
 
@@ -68,12 +72,13 @@ All three come from the device, so `journalctl -k -b | grep i2c_hid_acpi` shows 
 and each failed retry logs them again.
 
 - `probe failed (-110), retrying every 5 s for up to 120 s` (info): the first probe failed with
-  that error and the retries started. Without 0002 the device would now be dead until the next
-  boot.
+  that error and the retries started ("every 5 s": between the starts of two retries).
+  Without 0002 the device would now be dead until the next boot.
 - `probe retry N succeeded, M ms after the probe failed` (info): retry N brought it up, M ms
   after that first failure. The keyboard or touchpad works from here.
 - `giving up after N probe retries in M ms: -110` (warning): it never answered within the
-  120 s, or a retry failed with an error that isn't retried (the error it ends with). The
+  120 s, or a retry failed with an error that isn't retried (the error it ends with). M can be a
+  little over 120000: the last retry may start at 120 s and then time out. The
   device stays bound with nothing set up. Rebinding it starts a new round of retries, e.g. for
   the touchpad:
 

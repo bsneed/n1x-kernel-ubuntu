@@ -86,27 +86,27 @@ static void system_sleep(void)
 			make(s, restore ? "freeze and restore" : "suspend and resume");
 			checki("suspend returns 0", 0, pm_suspend());
 			check("asleep", asleep[s], snap());
-			advance_ms(60000);
+			advance_ms(60000); /* past the retry's time: resume queues it to run now */
 			checki(restore ? "restore returns 0" : "resume returns 0", 0, restore ? pm_restore() : pm_resume());
 			check("awake", awake[s], snap());
 			snprintf(want, sizeof(want), "suspend=%d/0 resume=%d set_power=0 tail=0 restore=%d", up, up,
 				 up && restore);
 			check("stock's sleep callbacks only when up", want, calls());
-			check("queued again only while pending", s == S_NONE ? "" : s == S_PENDING ? "5000 5000 " : "5000 ",
+			check("queued again only while pending", s == S_NONE ? "" : s == S_PENDING ? "5000 0 " : "5000 ",
 			      W.delays);
 		}
 	}
 
-	/* The retry starts again 5 s after the resume */
+	/* The retry carries on where it stopped: due 3 s after the sleep, if no time passed */
 	begin("suspend 2 s into a pending retry");
 	SCRIPT(W.desc, -ETIMEDOUT);
 	probe();
 	advance_ms(2000);
 	pm_suspend();
 	pm_resume();
-	check("queued for 5 s", "5000 5000 ", W.delays);
+	check("queued for the rest of the 5 s", "5000 3000 ", W.delays);
 	checki("one retry ran", 1, run_all());
-	check("it started 7 s after the failure", "7000 ", W.starts);
+	check("it started 5 s after the failure", "5000 ", W.starts);
 	check("up", "state=UP irq=enabled req=1 free=0 add=1 destroy=0 up=2 down=1 wake=on work=idle bufs=1/0 bad=", snap());
 }
 
