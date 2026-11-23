@@ -121,11 +121,11 @@ if is_proart_p16; then
 	if [[ ! -r /sys/module/i2c_hid/srcversion ]]; then
 		FAIL "i2c_hid is not loaded"
 	elif ! i2c_hid_has_quirk "$hko"; then
-		FAIL "i2c_hid (${hko:-not found}) puts the keyboard and touchpad to sleep at shutdown (no patches/ubuntu/0002), so they may die on a warm reboot"
+		FAIL "i2c_hid (${hko:-not found}) puts the I2C HID devices to sleep at shutdown (no patches/ubuntu/0002), so they may die on a warm reboot"
 	elif [[ $(cat /sys/module/i2c_hid/srcversion) != "$(modinfo -F srcversion i2c_hid 2>/dev/null)" ]]; then
 		FAIL "running i2c_hid is not the installed $hko: the initramfs holds another (sudo update-initramfs -u -k $k, reboot)"
 	else
-		OK "i2c_hid keeps the keyboard and touchpad awake at shutdown (patches/ubuntu/0002, $hko)"
+		OK "i2c_hid keeps the I2C HID devices awake at shutdown (patches/ubuntu/0002, $hko)"
 	fi
 	img=/boot/initrd.img-$k tool=$(initramfs_tool)
 	if [[ ! -r $img ]]; then

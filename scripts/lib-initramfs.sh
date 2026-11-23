@@ -5,7 +5,8 @@
 # shellcheck shell=bash
 
 # With touchpad firmware V1.26.0918.1, the P16's keyboard and touchpad are dead after a warm
-# reboot unless i2c-hid skips SET_POWER(SLEEP) at shutdown (patches/ubuntu/0002) and probes them
+# reboot unless i2c-hid skips SET_POWER(SLEEP) at shutdown for every I2C HID device on it
+# (patches/ubuntu/0002) and probes them
 # early in the next boot, from the initramfs; from the root file system (~3 s) is too late. See
 # docs/i2c-hid-warm-reboot.md. The modules: the I2C controller, the HID core, its ACPI glue.
 EARLY_MODULES=(i2c_mt65xx i2c_hid i2c_hid_acpi)
@@ -89,15 +90,13 @@ early_load_missing() {
 	return 0
 }
 
-# The quirk patches/ubuntu/0002 adds, as i2c_hid_quirks[] holds it in i2c-hid.ko (arm64, little
-# endian): { u16 vendor, u16 product, u32 I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN (BIT(8)) } for each
-# of the keyboard, the ASUS HID device and the touchpad. A module without all three is not ours.
-I2C_HID_QUIRK_ENTRIES=('\x05\x0b\x42\x4b\x00\x01\x00\x00' '\x05\x0b\x43\x45\x00\x01\x00\x00'
-	'\x3a\x09\x01\x4f\x00\x01\x00\x00')
+# patches/ubuntu/0002's DMI table entry for the P16, whose .ident string is in i2c-hid.ko. A
+# module without it puts every I2C HID device to sleep at shutdown.
+I2C_HID_QUIRK_IDENT='ASUS ProArt P16 H7607BA'
 
-# i2c_hid_has_quirk KO: true if the module file KO (.ko, .ko.zst or .ko.xz) has the quirk entries.
+# i2c_hid_has_quirk KO: true if the module file KO (.ko, .ko.zst or .ko.xz) has 0002's DMI entry.
 i2c_hid_has_quirk() {
-	local e f=$1 tmp="" bad=0
+	local f=$1 tmp="" bad=0
 	[[ -f $f ]] || return 1
 	case $f in
 	*.zst | *.xz)
@@ -107,9 +106,7 @@ i2c_hid_has_quirk() {
 		f=$tmp
 		;;
 	esac
-	for e in "${I2C_HID_QUIRK_ENTRIES[@]}"; do
-		LC_ALL=C grep -qaP "$e" "$f" || { bad=1; break; }
-	done
+	LC_ALL=C grep -qaF "$I2C_HID_QUIRK_IDENT" "$f" || bad=1
 	[[ -z $tmp ]] || rm -f "$tmp"
 	return "$bad"
 }

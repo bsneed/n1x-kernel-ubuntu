@@ -1,0 +1,119 @@
+From 102399f07f54c3262e8fae9c94362d100b61cd10 Mon Sep 17 00:00:00 2001
+From: Brandon Sneed <brandon@redf.net>
+Date: Sun, 22 Nov 2026 20:30:00 -0800
+Subject: [PATCH] HID: i2c-hid: don't put I2C HID devices to sleep at shutdown
+ on the ASUS ProArt P16
+
+n1x-kernel-ubuntu: not upstream. Written for this packaging and verified
+on the ProArt P16 (docs/i2c-hid-warm-reboot.md); it still has to be
+reported to linux-input.
+
+Why we carry it: since Windows installed touchpad firmware V1.26.0918.1
+(2026-11-22), a restart from Linux leaves the P16's internal keyboard
+(i2c-MKB0001, 0B05:4B42), its ASUS HID device (i2c-ASTH0001, 0B05:4543)
+and its touchpad (i2c-3030443150435341, 093A:4F01) dead: dead in GRUB
+too, and Linux logs "i2c_hid_acpi ...: failed to fetch HID descriptor:
+-110". Power off and on is fine. Only removing all power (charger out,
+power button held 30-60 s) brings them back. None of Omarchy's patches
+(7.3-75) touch i2c-hid-core.c.
+
+Restarts on BIOS 300, kernel 7.3.0-n1x2, with i2c-hid built by hand:
+- stock i2c-hid, probed late (~3.3 s, from the root file system): dead
+  in GRUB and Linux;
+- stock i2c-hid, probed early (~1.1 s, from the initramfs): dead in
+  GRUB and Linux;
+- no SET_POWER(SLEEP) in i2c_hid_core_shutdown(), probed late: GRUB
+  works, Linux dead (the devices are gone by the probe);
+- no SET_POWER(SLEEP) at shutdown, probed early: 3 of 3 restarts fine.
+So it takes both: this patch, and i2c-hid loaded from the initramfs,
+which scripts/install.sh sets up on the P16.
+
+Those test modules skipped the command for every I2C HID device. A
+first version of this patch (7.3.0-n1x3) skipped it only for the
+keyboard, the ASUS device and the touchpad, and its first restart left
+all of them dead, and the touchscreen too (222A:5554, on the keyboard's
+bus, which stock i2c-hid survives). So the quirk is per machine: add
+I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN, which skips the SET_POWER(SLEEP) in
+i2c_hid_core_shutdown() (the IRQ is still freed and shutdown_tail still
+runs), and set it for every device on a machine in a DMI table that
+holds the P16 H7607BA. Suspend and remove still put the devices to
+sleep. Power goes away right after shutdown, so the devices lose
+nothing; on a restart they get a reset at the next probe.
+
+Drop it when upstream has an equivalent fix (then build.sh's patch -N
+fails on it), or when ASUS firmware no longer wedges on a restart.
+
+Signed-off-by: Brandon Sneed <brandon@redf.net>
+---
+ drivers/hid/i2c-hid/i2c-hid-core.c | 27 ++++++++++++++++++++++++++-
+ 1 file changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/hid/i2c-hid/i2c-hid-core.c b/drivers/hid/i2c-hid/i2c-hid-core.c
+index a61fd1d..61d92c4 100644
+--- a/drivers/hid/i2c-hid/i2c-hid-core.c
++++ b/drivers/hid/i2c-hid/i2c-hid-core.c
+@@ -24,6 +24,7 @@
+ #include <linux/input.h>
+ #include <linux/irq.h>
+ #include <linux/delay.h>
++#include <linux/dmi.h>
+ #include <linux/slab.h>
+ #include <linux/pm.h>
+ #include <linux/pm_wakeirq.h>
+@@ -52,6 +53,7 @@
+ #define I2C_HID_QUIRK_NO_SLEEP_ON_SUSPEND	BIT(5)
+ #define I2C_HID_QUIRK_DELAY_WAKEUP_AFTER_RESUME BIT(6)
+ #define I2C_HID_QUIRK_RE_POWER_ON		BIT(7)
++#define I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN	BIT(8)
+ 
+ /* Command opcodes */
+ #define I2C_HID_OPCODE_RESET			0x01
+@@ -158,6 +160,26 @@ static const struct i2c_hid_quirks {
+ 	{ 0, 0 }
+ };
+ 
++/*
++ * Machines none of whose I2C HID devices may get SET_POWER(SLEEP) at shutdown.
++ *
++ * ASUS ProArt P16 H7607BA: with touchpad firmware V1.26.0918.1, a warm reboot
++ * after it leaves the keyboard, the touchpad and the ASUS HID device dead (in
++ * firmware too) until the laptop loses all power. Sparing only those three is
++ * not enough; the touchscreen, on the keyboard's bus, must be spared as well.
++ * They also have to be probed early in boot (i2c-hid in the initramfs).
++ */
++static const struct dmi_system_id i2c_hid_no_sleep_on_shutdown_dmi[] = {
++	{
++		.ident = "ASUS ProArt P16 H7607BA",
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "ASUS"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "H7607BA"),
++		},
++	},
++	{ }
++};
++
+ /*
+  * i2c_hid_lookup_quirk: return any quirks associated with a I2C HID device
+  * @idVendor: the 16-bit vendor ID
+@@ -1075,6 +1097,8 @@ static int __i2c_hid_core_probe(struct i2c_hid *ihid)
+ 	strscpy(hid->phys, dev_name(&client->dev), sizeof(hid->phys));
+ 
+ 	ihid->quirks = i2c_hid_lookup_quirk(hid->vendor, hid->product);
++	if (dmi_check_system(i2c_hid_no_sleep_on_shutdown_dmi))
++		ihid->quirks |= I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN;
+ 
+ 	return 0;
+ }
+@@ -1357,7 +1381,8 @@ void i2c_hid_core_shutdown(struct i2c_client *client)
+ {
+ 	struct i2c_hid *ihid = i2c_get_clientdata(client);
+ 
+-	i2c_hid_set_power(ihid, I2C_HID_PWR_SLEEP);
++	if (!(ihid->quirks & I2C_HID_QUIRK_NO_SLEEP_ON_SHUTDOWN))
++		i2c_hid_set_power(ihid, I2C_HID_PWR_SLEEP);
+ 	free_irq(client->irq, ihid);
+ 
+ 	i2c_hid_core_shutdown_tail(ihid);
+-- 
+2.43.0
+

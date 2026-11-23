@@ -89,17 +89,11 @@ eq "initramfs: a module name inside another doesn't count" "i2c_hid not loaded f
 	"$(early_load_missing "$T/ir-list" <(printf 'rd.driver.pre=i2c_mt65xx\nrd.driver.pre=i2c_hid_acpi\n'))"
 
 # --- check.sh: the quirk in i2c-hid.ko --------------------------------------------------------
-qko() { # qko FILE ENTRY...: a fake module holding the ENTRYs (printf escapes) among other bytes
-	local f=$1 e
-	shift
-	{ printf 'ELF\0\0junk'; for e in "$@"; do printf '%b\0\0\0\0' "$e"; done; printf 'tail'; } >"$f"
-}
-qko "$T/ir-q.ko" "${I2C_HID_QUIRK_ENTRIES[@]}"
-eq "quirk: all three entries" 0 "$(i2c_hid_has_quirk "$T/ir-q.ko"; echo $?)"
-qko "$T/ir-q2.ko" "${I2C_HID_QUIRK_ENTRIES[@]:0:2}"
-eq "quirk: not without the touchpad's" 1 "$(i2c_hid_has_quirk "$T/ir-q2.ko"; echo $?)"
-qko "$T/ir-q3.ko" '\x05\x0b\x42\x4b\x00\x00\x00\x00' "${I2C_HID_QUIRK_ENTRIES[@]:1}"
-eq "quirk: not with another quirk bit" 1 "$(i2c_hid_has_quirk "$T/ir-q3.ko"; echo $?)"
+qko() { printf 'ELF\0\0junk\0%s\0tail' "$2" >"$1"; } # qko FILE STRING: a fake module holding STRING
+qko "$T/ir-q.ko" "$I2C_HID_QUIRK_IDENT"
+eq "quirk: 0002's DMI entry" 0 "$(i2c_hid_has_quirk "$T/ir-q.ko"; echo $?)"
+qko "$T/ir-q2.ko" "ASUS ProArt P16"
+eq "quirk: not without it" 1 "$(i2c_hid_has_quirk "$T/ir-q2.ko"; echo $?)"
 eq "quirk: not without a file" 1 "$(i2c_hid_has_quirk "$T/none.ko"; echo $?)"
 eq "quirk: not without a path (modinfo found none)" 1 "$(i2c_hid_has_quirk ""; echo $?)"
 for z in zstd xz; do

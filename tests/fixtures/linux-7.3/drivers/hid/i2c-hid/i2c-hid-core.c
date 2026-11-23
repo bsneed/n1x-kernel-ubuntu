@@ -1,5 +1,30 @@
 /*
 /* Excerpts of 7.3 (after Omarchy 7.3-75, which leaves this file alone) for tests/t-patch.sh. */
+#include <linux/module.h>
+#include <linux/i2c.h>
+#include <linux/interrupt.h>
+#include <linux/input.h>
+#include <linux/irq.h>
+#include <linux/delay.h>
+#include <linux/slab.h>
+#include <linux/pm.h>
+#include <linux/pm_wakeirq.h>
+#include <linux/device.h>
+#include <linux/wait.h>
+#include <linux/err.h>
+#include <linux/string.h>
+#include <linux/list.h>
+#include <linux/jiffies.h>
+#include <linux/kernel.h>
+#include <linux/hid.h>
+#include <linux/mutex.h>
+#include <linux/unaligned.h>
+
+#include <drm/drm_panel.h>
+
+#include "../hid-ids.h"
+#include "i2c-hid.h"
+
 /* quirks to control the device */
 #define I2C_HID_QUIRK_NO_IRQ_AFTER_RESET	BIT(0)
 #define I2C_HID_QUIRK_BOGUS_IRQ			BIT(1)
@@ -104,6 +129,30 @@ static int i2c_hid_core_suspend(struct i2c_hid *ihid, bool force_poweroff)
 
 static int i2c_hid_core_resume(struct i2c_hid *ihid)
 {
+
+
+	ret = i2c_hid_fetch_hid_descriptor(ihid);
+	if (ret < 0) {
+		dev_err(&client->dev,
+			"Failed to fetch the HID Descriptor\n");
+		return ret;
+	}
+
+	hid->version = le16_to_cpu(ihid->hdesc.bcdVersion);
+	hid->vendor = le16_to_cpu(ihid->hdesc.wVendorID);
+	hid->product = le16_to_cpu(ihid->hdesc.wProductID);
+
+	hid->initial_quirks |= i2c_hid_get_dmi_quirks(hid->vendor,
+						      hid->product);
+
+	snprintf(hid->name, sizeof(hid->name), "%s %04X:%04X",
+		 client->name, (u16)hid->vendor, (u16)hid->product);
+	strscpy(hid->phys, dev_name(&client->dev), sizeof(hid->phys));
+
+	ihid->quirks = i2c_hid_lookup_quirk(hid->vendor, hid->product);
+
+	return 0;
+}
 
 void i2c_hid_core_shutdown(struct i2c_client *client)
 {

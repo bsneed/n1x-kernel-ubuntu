@@ -22,8 +22,9 @@ BASE_CONFIG_FILE_SHA256=d93993d453eeb5aad943d7181b3bbc3b3f078088405c04a3a6511e84
 # Our revision of this kernel: uname -r is <kernel>-n1x<N>, e.g. 7.3.0-n1x2. Raise it with
 # every change to the kernel (patches/ubuntu, config): each revision is a new package.
 # 2: patches/ubuntu/0001 (mt7925 reset panic).
-# 3: patches/ubuntu/0002 (i2c-hid: no sleep at shutdown for the ProArt P16's keyboard and touchpad).
-N1X_REVISION=3
+# 3: patches/ubuntu/0002, first version (three device IDs; a restart still wedged them; never released).
+# 4: patches/ubuntu/0002 for every I2C HID device on the ProArt P16 (a DMI match).
+N1X_REVISION=4
 
 # NVIDIA open kernel modules, built by our DKMS package with patches/nvidia.
 # Ubuntu's NVIDIA user space (nvidia-*-620) must be this upstream version; install.sh pins it.
@@ -38,4 +39,5 @@ NVIDIA_UBUNTU_VERSION=620.73.04-0ubuntu0.26.04.1
 # needs a new revision too, or install.sh refuses it as "other files under the same version".
 # 3: no module change, rebuilt for N1X_REVISION 2.
 # 4: no module change, rebuilt for N1X_REVISION 3.
-NVIDIA_N1X_REVISION=4
+# 5: no module change, rebuilt for N1X_REVISION 4.
+NVIDIA_N1X_REVISION=5
