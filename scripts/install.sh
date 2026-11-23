@@ -13,7 +13,10 @@
 #     modules (/etc/apt/preferences.d/n1x-kernel-ubuntu-nvidia);
 #  3. the USB4 PCI hotplug padding (pci=hpbussize=...) in GRUB_CMDLINE_LINUX_DEFAULT;
 #  4. an nvidia-persistenced unit without Ubuntu's boot-time ordering cycle, when needed
-#     (/etc/systemd/system/nvidia-persistenced.service).
+#     (/etc/systemd/system/nvidia-persistenced.service);
+#  5. on the ProArt P16, its keyboard and touchpad's i2c-hid drivers loaded early from the
+#     initramfs, which they need to survive a warm reboot with patches/ubuntu/0002
+#     (/etc/dracut.conf.d/50-i2c-hid-early.conf, or a block in /etc/initramfs-tools/modules).
 # Every apt transaction is simulated first; the install stops before changing anything if apt
 # can't do it or would remove something else.
 # GRUB's default stays the kernel you run now; the new kernel boots once on the next reboot
@@ -27,6 +30,7 @@ set -euo pipefail
 . "$(dirname "$0")/grub.sh"
 . "$(dirname "$0")/lib-nvidia.sh"
 . "$(dirname "$0")/lib-install.sh"
+. "$(dirname "$0")/lib-initramfs.sh"
 . "$(dirname "$0")/lib-steps.sh"
 
 DEBS=$REPO/out MODE=install
@@ -128,6 +132,7 @@ do_install() {
 	# GRUB keeps $prev the default before any package changes, so every failure from here on boots it.
 	install_packages "$prev" "$TMP/pin" "${args[@]}"
 	dkms_all_kernels "$prev"
+	early_load_apply
 	# The kernel loads the NVIDIA modules from the initramfs; DKMS 3 rebuilds none of them.
 	msg "Refreshing every initramfs"
 	update-initramfs -u -k all ||
@@ -199,6 +204,7 @@ do_remove() {
 	# away from every kernel, 7.3 included: a failure from here on must leave it the default.
 	msg "Restoring NVIDIA: ${want[*]:-(none)}${remove[*]:+; removing ${remove[*]}}"
 	restore_packages "$prev" "$TMP/prefs/${PIN##*/}" install "${want[@]}" "${remove[@]/%/-}"
+	early_load_drop
 	update-initramfs -u -k all ||
 		die "update-initramfs failed (see above; is /boot full?). The NVIDIA packages are back and GRUB boots $prev by default; fix that and run --remove again"
 	persistenced_drop

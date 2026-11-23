@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # The steps of scripts/install.sh that change the system: the temporary -proposed source,
-# checked apt transactions, GRUB, the nvidia-persistenced override. Sourced by install.sh,
-# whose settings (PROPOSED_*, GRUB_*, RELEASE, TMP, PIN, APT) they use.
+# checked apt transactions, GRUB, the nvidia-persistenced override, the early i2c-hid load.
+# Sourced by install.sh, whose settings (PROPOSED_*, GRUB_*, RELEASE, TMP, PIN, APT) they use.
 # shellcheck shell=bash
 
 # Temporary <codename>-proposed at priority 1 (only versions asked for by name), as
@@ -140,6 +140,16 @@ remove_kernels() {
 	grub_back_to "$prev"
 }
 
+# file_replace NEW DEST: puts NEW in place of DEST (mode 644, by rename, so DEST is never half
+# written). Fails, changing nothing, if DEST already has NEW's content.
+file_replace() {
+	cmp -s "$1" "$2" && return 1
+	mkdir -p "$(dirname "$2")"
+	cp "$1" "$2.n1x"
+	chmod 644 "$2.n1x"
+	mv "$2.n1x" "$2"
+}
+
 # Writes (or refreshes) the nvidia-persistenced override when the packaged unit has the
 # ordering cycle, and drops ours when it no longer does. An override someone else wrote stays.
 persistenced_apply() {
@@ -151,10 +161,7 @@ persistenced_apply() {
 		warn "$PERSISTENCED_OVERRIDE was not written by install.sh, so it stays as it is. If it is the packaged unit without $PERSISTENCED_CYCLE, delete it and run install.sh again, which then keeps it in step with the package."
 		return 0
 	fi
-	cmp -s "$TMP/persistenced" "$PERSISTENCED_OVERRIDE" && return 0
-	cp "$TMP/persistenced" "$PERSISTENCED_OVERRIDE.n1x"
-	chmod 644 "$PERSISTENCED_OVERRIDE.n1x"
-	mv "$PERSISTENCED_OVERRIDE.n1x" "$PERSISTENCED_OVERRIDE"
+	file_replace "$TMP/persistenced" "$PERSISTENCED_OVERRIDE" || return 0
 	systemctl daemon-reload
 	msg "Wrote $PERSISTENCED_OVERRIDE: $PERSISTENCED_UNIT without its ordering cycle ($PERSISTENCED_CYCLE)"
 }
@@ -164,4 +171,57 @@ persistenced_drop() {
 	rm -f "$PERSISTENCED_OVERRIDE"
 	systemctl daemon-reload
 	msg "Removed $PERSISTENCED_OVERRIDE"
+}
+
+# early_load_apply: on the ProArt P16, makes the initramfs load the keyboard and touchpad's
+# i2c-hid drivers early (lib-initramfs.sh), through the tool that builds it: a dracut drop-in,
+# or a block in initramfs-tools' modules list. Ours for the other tool goes, and elsewhere ours
+# goes altogether. Run before install.sh refreshes every initramfs. A dracut drop-in of that
+# name that someone else wrote stays, unless it sets exactly what ours does.
+early_load_apply() {
+	local tool
+	if ! is_proart_p16; then
+		early_load_drop
+		return 0
+	fi
+	if ! tool=$(initramfs_tool); then
+		warn "neither dracut nor initramfs-tools is installed, so the keyboard and touchpad's i2c-hid drivers are not loaded early, and they may die on a warm reboot (docs/i2c-hid-warm-reboot.md)"
+		return 0
+	fi
+	if [[ $tool == initramfs-tools ]]; then
+		early_dracut_drop
+		early_itools_with "$EARLY_ITOOLS" >"$TMP/early"
+		if file_replace "$TMP/early" "$EARLY_ITOOLS"; then
+			msg "$EARLY_ITOOLS: the i2c-hid drivers load early (${EARLY_MODULES[*]})"
+		fi
+		return 0
+	fi
+	early_itools_drop
+	if ! early_dracut_adoptable "$EARLY_DRACUT"; then
+		warn "$EARLY_DRACUT was not written by install.sh and sets something else, so it stays as it is. Unless it loads ${EARLY_MODULES[*]} early, the keyboard and touchpad may die on a warm reboot: delete it and run install.sh again."
+		return 0
+	fi
+	early_dracut_text >"$TMP/early"
+	if file_replace "$TMP/early" "$EARLY_DRACUT"; then
+		msg "Wrote $EARLY_DRACUT: the i2c-hid drivers load early (${EARLY_MODULES[*]})"
+	fi
+}
+
+# early_load_drop: removes what early_load_apply wrote, for either tool.
+early_load_drop() {
+	early_dracut_drop
+	early_itools_drop
+}
+
+early_dracut_drop() {
+	early_dracut_is_ours "$EARLY_DRACUT" || return 0
+	rm -f "$EARLY_DRACUT"
+	msg "Removed $EARLY_DRACUT"
+}
+
+early_itools_drop() {
+	grep -qxF "$EARLY_BEGIN" "$EARLY_ITOOLS" 2>/dev/null || return 0
+	early_itools_without "$EARLY_ITOOLS" >"$TMP/early"
+	file_replace "$TMP/early" "$EARLY_ITOOLS" || true
+	msg "Removed the i2c-hid block from $EARLY_ITOOLS"
 }

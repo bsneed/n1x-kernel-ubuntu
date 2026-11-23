@@ -4,7 +4,8 @@
 #
 # Why: one place to see that the running kernel is ours, the USB4 host routers are bound,
 # a dock is enumerated and authorized, the NVIDIA modules match the user space, and what
-# scripts/install.sh set up (apt pin, nvidia-persistenced override) is in place.
+# scripts/install.sh set up (apt pin, nvidia-persistenced override, on the ProArt P16 the early
+# i2c-hid load) is in place, and on the P16 that i2c-hid has patches/ubuntu/0002.
 # Prints one line per item: OK, WARN or FAIL (as proart-p16-linux's tools/check.sh does).
 # Remove: nothing to remove; it only reads.
 # Run with: bash scripts/check.sh
@@ -12,6 +13,7 @@ set -uo pipefail
 . "$(dirname "$0")/lib.sh"
 . "$(dirname "$0")/grub.sh"
 . "$(dirname "$0")/lib-nvidia.sh"
+. "$(dirname "$0")/lib-initramfs.sh"
 load_sources
 RELEASE=$(kernel_release "$KERNEL_VERSION" "$N1X_REVISION")
 
@@ -111,6 +113,44 @@ else WARN "no NVIDIA modules for: $nodkms"; fi
 if [[ -r $PERSISTENCED_UNIT ]]; then
 	s=$(persistenced_status "$PERSISTENCED_UNIT" "$PERSISTENCED_OVERRIDE")
 	"${s%% *}" "${s#* }"
+fi
+
+if is_proart_p16; then
+	echo "== Keyboard and touchpad (ProArt P16, docs/i2c-hid-warm-reboot.md)"
+	hko=$(modinfo -n i2c_hid 2>/dev/null)
+	if [[ ! -r /sys/module/i2c_hid/srcversion ]]; then
+		FAIL "i2c_hid is not loaded"
+	elif ! i2c_hid_has_quirk "$hko"; then
+		FAIL "i2c_hid (${hko:-not found}) puts the keyboard and touchpad to sleep at shutdown (no patches/ubuntu/0002), so they may die on a warm reboot"
+	elif [[ $(cat /sys/module/i2c_hid/srcversion) != "$(modinfo -F srcversion i2c_hid 2>/dev/null)" ]]; then
+		FAIL "running i2c_hid is not the installed $hko: the initramfs holds another (sudo update-initramfs -u -k $k, reboot)"
+	else
+		OK "i2c_hid keeps the keyboard and touchpad awake at shutdown (patches/ubuntu/0002, $hko)"
+	fi
+	img=/boot/initrd.img-$k tool=$(initramfs_tool)
+	if [[ ! -r $img ]]; then
+		WARN "cannot read $img, so the early i2c-hid load is unchecked (sudo bash scripts/check.sh)"
+	elif [[ -z $tool ]]; then
+		FAIL "neither dracut nor initramfs-tools is installed, so the early i2c-hid load is unchecked"
+	else
+		tmp=$(mktemp -d)
+		if [[ $tool == dracut ]]; then
+			lsinitrd "$img" >"$tmp/list" 2>/dev/null
+			lsinitrd -f etc/cmdline.d/20-force_drivers.conf "$img" >"$tmp/pre" 2>/dev/null
+		else
+			lsinitramfs "$img" >"$tmp/list" 2>/dev/null
+			# conf/modules is a copy of the list from when the initramfs was built.
+			: >"$tmp/pre"
+			[[ $img -nt $EARLY_ITOOLS ]] && early_settings "$EARLY_ITOOLS" | awk '{print $1}' >"$tmp/pre"
+		fi
+		missing=$(early_load_missing "$tmp/list" "$tmp/pre" | paste -sd, -)
+		rm -rf "$tmp"
+		if [[ -z $missing ]]; then
+			OK "the initramfs of $k loads ${EARLY_MODULES[*]} first ($tool)"
+		else
+			FAIL "the initramfs of $k does not load the i2c-hid drivers early ($missing): sudo bash scripts/install.sh"
+		fi
+	fi
 fi
 
 echo "== Displays"
