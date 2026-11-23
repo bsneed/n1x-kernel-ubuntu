@@ -1,4 +1,4 @@
-From 095a9265f2117ed049c09b29ba0722e3e2d5b3f5 Mon Sep 17 00:00:00 2001
+From bbaaaa2d258c5b7f0c3710143537dfba6fca99b0 Mon Sep 17 00:00:00 2001
 From: Brandon Sneed <brandon@redf.net>
 Date: Mon, 23 Nov 2026 10:30:00 -0800
 Subject: [PATCH] HID: i2c-hid: retry a failed probe in the background on the
@@ -26,30 +26,33 @@ touchpad, and the ASUS device on a later try. I2C traces of the
 failures show the controller stalled mid-transfer (INTR_STAT 0, nothing
 received), and an immediate retry of a stalled command often works.
 
-So on a machine in a DMI table that holds only the P16 H7607BA (sys
-vendor "ASUS"), a probe that fails with -ETIMEDOUT or -ENXIO (in the
-address check, the HID descriptor fetch, or the power-up, reset and
-report descriptor read of registering the hid) does not fail: probe
-returns 0 with the IRQ freed, the hid not added, the device powered
-down and its wakeup disabled (nothing would handle its wake IRQ), and
-a delayed work on system_freezable_wq repeats what probe does, sending
-a HID RESET first when an earlier attempt read a valid HID descriptor
-(the command register comes from it). The first retry starts 5 s after
-the failure, each next one 5 s after the previous one started (right
-after it, if it took longer), and none starts later than 120 s after
-the failure. A retry that brings the device up enables its wakeup
-again if it was enabled. It logs:
+So on a machine in a DMI table that holds only the P16 H7607BA
+(sys_vendor containing "ASUS", product_name containing "H7607BA"), a
+probe that fails with -ETIMEDOUT or -ENXIO (in the address check, the
+HID descriptor fetch, or the power-up, reset and report descriptor read
+of registering the hid) does not fail: probe returns 0 with the IRQ
+freed, the hid not added, the device powered down and its wakeup
+disabled (nothing would handle its wake IRQ), and a delayed work on
+system_freezable_wq repeats what probe does. The first retry starts
+5 s after the failure, each next one 5 s after the previous one
+started (right after it, if it took longer), and none starts later
+than 120 s after the failure. A retry sends a HID RESET first only if
+an earlier attempt read a valid HID descriptor, because the command
+register comes from it: while every descriptor fetch fails, as in the
+usual failure, no RESET is sent. A retry that brings the device up
+enables its wakeup again if it was enabled. It logs:
   probe failed (%d), retrying every 5 s for up to 120 s
   probe retry N succeeded, M ms after the probe failed
   giving up after N probe retries in M ms: %d
 To keep the I2C error for that test, the descriptor fetch returns it
 instead of -ENODEV on those machines when it is -ETIMEDOUT or -ENXIO.
 Remove and shutdown cancel the work (synchronously) and, for a device
-that never came up, skip the sleep command and free_irq(); system
-sleep and hibernation stop it the same way and resume it afterwards
-on the same schedule (jiffies don't count the time asleep). Every
-other machine, every other error, and panel followers behave as
-before.
+that never came up, skip the sleep command and free_irq(); shutdown
+also skips shutdown_tail (i2c-hid-acpi's D3cold), as stock never calls
+shutdown on a device whose probe failed. System sleep and hibernation
+stop the work the same way and resume it afterwards on the same
+schedule (jiffies don't count the time asleep). Every other machine,
+every other error, and panel followers behave as before.
 
 Drop it when upstream i2c-hid retries such probes itself (then build.sh's
 patch -N fails on it), or when ASUS firmware answers in time at boot.

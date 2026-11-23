@@ -42,9 +42,9 @@ What is known about it:
 ## The fix
 
 0002 changes `drivers/hid/i2c-hid/i2c-hid-core.c` (the code the ACPI glue `i2c-hid-acpi.c` calls).
-On a machine in its DMI table, which holds only the P16 (`sys_vendor` exactly `ASUS`,
-`product_name` containing `H7607BA`), a probe that fails with -ETIMEDOUT (-110) or -ENXIO (-6)
-doesn't fail:
+On a machine in its DMI table, which holds only the P16 (`sys_vendor` containing `ASUS`, which
+on the P16 is exactly `ASUS`, and `product_name` containing `H7607BA`), a probe that fails with
+-ETIMEDOUT (-110) or -ENXIO (-6) doesn't fail:
 
 - What counts: the address check, the HID descriptor fetch, and the power-up, reset and report
   descriptor read that registering the HID device does. Any other error fails the probe as
@@ -54,18 +54,21 @@ doesn't fail:
   leaves a device whose probe failed with no wakeup either; with it enabled, its wake IRQ would
   be armed at every suspend with nothing to handle it).
 - A delayed work (on the freezable system workqueue, so it never blocks probe or boot) then
-  does what probe does: power up, a HID RESET, check the address, fetch the descriptor, request
-  the IRQ, add the HID device. The first retry starts 5 s after the failure, and each next one
-  5 s after the previous one started, or right after it if it took longer than that (a
-  timed-out transfer takes 2 s). No retry starts later than 120 s after the failure, so there
-  are at most 24. The RESET goes out only once an earlier attempt read a valid HID descriptor
-  this boot, because the command register it is sent to comes from that descriptor; until then
-  a retry starts straight at the address check.
+  does what probe does: power up, a HID RESET (see below), check the address, fetch the
+  descriptor, request the IRQ, add the HID device. The first retry starts 5 s after the
+  failure, and each next one 5 s after the previous one started, or right after it if it took
+  longer than that (a timed-out transfer takes 2 s). No retry starts later than 120 s after
+  the failure, so there are at most 24.
+- The RESET goes out only once an earlier attempt read a valid HID descriptor, because the
+  command register it is sent to comes from that descriptor. In the usual failure, where the
+  descriptor fetch itself times out, no RESET is sent until a fetch has worked, and a retry
+  starts straight at the address check; the ACPI tables give no other way to find the register.
 - A retry that brings the device up enables its wakeup again, if it was enabled.
 - Unbind/remove and shutdown cancel the work and wait for it. For a device that never came up
-  they skip what assumes a working device (the sleep command, `free_irq()`). System suspend and
-  hibernation stop the work the same way and start it again on resume, on the same schedule
-  (the time asleep doesn't count).
+  they skip what assumes a working device: the sleep command and `free_irq()`, and at shutdown
+  also `shutdown_tail` (i2c-hid-acpi's D3cold), as stock never calls shutdown on a device whose
+  probe failed. System suspend and hibernation stop the work the same way and start it again
+  on resume, on the same schedule (the time asleep doesn't count).
 
 ## Its log lines
 
