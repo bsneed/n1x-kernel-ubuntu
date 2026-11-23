@@ -3,7 +3,9 @@
 What `patches/ubuntu/0002` fixes on the ProArt P16, how it works, and how to read what it logs.
 It is in kernel 7.3.0-n1x5. **Status:** built and tested off the hardware (it compiles with
 `W=1` without warnings, and `tests/t-i2c-hid-retry.sh` runs the patched code against a fake
-device: every state, error and teardown path below); not yet verified on the P16 itself.
+device: every state, error and teardown path below). On the P16 it works as designed, but its
+first 120 s window was too short ([Tested on the P16](#tested-on-the-p16)); it now retries for
+300 s, which is not yet verified there.
 
 ## The bug
 
@@ -57,8 +59,8 @@ on the P16 is exactly `ASUS`, and `product_name` containing `H7607BA`), a probe 
   does what probe does: power up, a HID RESET (see below), check the address, fetch the
   descriptor, request the IRQ, add the HID device. The first retry starts 5 s after the
   failure, and each next one 5 s after the previous one started, or right after it if it took
-  longer than that (a timed-out transfer takes 2 s). No retry starts later than 120 s after
-  the failure, so there are at most 24.
+  longer than that (a timed-out transfer takes 2 s). No retry starts later than 300 s
+  (5 minutes) after the failure, so there are at most 60.
 - The RESET goes out only once an earlier attempt read a valid HID descriptor, because the
   command register it is sent to comes from that descriptor. In the usual failure, where the
   descriptor fetch itself times out, no RESET is sent until a fetch has worked, and a retry
@@ -77,21 +79,34 @@ All three come from the device, so `journalctl -k -b | grep i2c_hid_acpi` shows 
 `failed to fetch HID descriptor: -110` and `Failed to fetch the HID Descriptor` still appear,
 and each failed retry logs them again.
 
-- `probe failed (-110), retrying every 5 s for up to 120 s` (info): the first probe failed with
+- `probe failed (-110), retrying every 5 s for up to 300 s` (info): the first probe failed with
   that error and the retries started ("every 5 s": between the starts of two retries).
   Without 0002 the device would now be dead until the next boot.
 - `probe retry N succeeded, M ms after the probe failed` (info): retry N brought it up, M ms
   after that first failure. The keyboard or touchpad works from here.
 - `giving up after N probe retries in M ms: -110` (warning): it never answered within the
-  120 s, or a retry failed with an error that isn't retried (the error it ends with). M can be a
-  little over 120000: the last retry may start at 120 s and then time out. The
-  device stays bound with nothing set up. Rebinding it starts a new round of retries, e.g. for
-  the touchpad:
+  300 s, or a retry failed with an error that isn't retried (the error it ends with). M can be a
+  little over 300000: the last retry may start at 300 s and then time out. The device stays
+  bound with nothing set up. Rebinding it starts a new round of retries, e.g. for the touchpad:
 
   ```sh
   echo i2c-3030443150435341:00 | sudo tee /sys/bus/i2c/drivers/i2c_hid_acpi/unbind
   echo i2c-3030443150435341:00 | sudo tee /sys/bus/i2c/drivers/i2c_hid_acpi/bind
   ```
+
+## Tested on the P16
+
+On rtx24, with 0002 built as a module against kernel n1x2 and its first window of 120 s, the
+retry worked as designed but gave up too soon. On a bad boot (about 1 in 5 restarts, on the
+charger), the keyboard, the touchpad and the ASUS device all gave up at 118.6 s after 23 retries.
+Then they answered on their own: the keyboard at about 140 s of uptime, the touchpad at 154 s
+and the ASUS device at 166 s. The touchscreen (i2c-2, 0x10) bound at 5.2 s; it only stalls
+behind the keyboard's hung transfer on the same bus. Earlier rebinds by hand at 3-5 minutes all
+worked.
+
+So 0002 now retries for 300 s, keeping the 5 s interval: well past the latest device seen
+(166 s of uptime) and as long as the rebinds by hand that worked, while a device that is really
+gone still gives up within 5 minutes.
 
 ## install.sh and check.sh
 
@@ -106,6 +121,7 @@ and each failed retry logs them again.
 
 ## Still to do
 
-- Verify on the P16: several cold boots and restarts with n1x5, watching for the log lines
-  above and checking that the keyboard and touchpad come back without a rebind.
+- Verify the 300 s window on the P16: several cold boots and restarts with n1x5 (restarts on the
+  charger hit it most), watching for the log lines above and checking that the keyboard,
+  touchpad and ASUS device come back without a rebind.
 - Report it to linux-input.

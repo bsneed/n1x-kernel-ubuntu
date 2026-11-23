@@ -84,9 +84,11 @@ limitation into the README.
   boots and restarts alike, so it is a boot-time probe race, not shutdown (PR #2's shutdown
   quirk and early i2c-hid load didn't help and are gone). The devices are slow, not dead:
   binding `i2c_hid_acpi` by hand 2-3 minutes later brings them back. `patches/ubuntu/0002`
-  (7.3.0-n1x5) retries the probe in the background, 5 s apart for up to 120 s
-  ([docs/i2c-hid-probe-retry.md](docs/i2c-hid-probe-retry.md)). Still to do: verify it on rtx24
-  over several cold boots and restarts (look for `probe retry N succeeded`), check that
+  (7.3.0-n1x5) retries the probe in the background, 5 s apart for up to 300 s
+  ([docs/i2c-hid-probe-retry.md](docs/i2c-hid-probe-retry.md)). On rtx24 it worked as designed
+  with 120 s, but on a bad restart the devices gave up at 118.6 s and answered at 140-166 s of
+  uptime, hence 300 s. Still to do: verify the 300 s window on rtx24 over several cold boots and
+  restarts (look for `probe retry N succeeded`), check that
   `install.sh` removed `/etc/dracut.conf.d/50-i2c-hid-early.conf` there, and report it to
   linux-input.
 - [ ] **BIOS update** once ASUS publishes something newer than H7607BA.300 for this model (none

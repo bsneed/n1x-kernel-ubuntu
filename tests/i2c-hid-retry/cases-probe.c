@@ -7,7 +7,7 @@
 
 #define DEFERRED "state=PENDING irq=free req=0 free=0 add=0 destroy=0 up=1 down=1 wake=off work=queued bufs=1/0 bad="
 #define FAILED "state=NONE irq=free req=0 free=0 add=0 destroy=1 up=1 down=1 wake=on work=idle bufs=1/1 bad="
-#define FAILED_LOG "info: probe failed (-110), retrying every 5 s for up to 120 s"
+#define FAILED_LOG "info: probe failed (-110), retrying every 5 s for up to 300 s"
 
 static void stock_probe_failures(void)
 {
@@ -93,12 +93,12 @@ static void deferred_probes(void)
 	SCRIPT(W.desc, -ENXIO);
 	checki("probe returns 0", 0, probe());
 	check("deferred", DEFERRED, snap());
-	check("logged", "info: probe failed (-6), retrying every 5 s for up to 120 s", log_find("probe failed ("));
+	check("logged", "info: probe failed (-6), retrying every 5 s for up to 300 s", log_find("probe failed ("));
 	begin("P16, nothing at the address");
 	SCRIPT(W.addr, -ETIMEDOUT, -ETIMEDOUT);
 	checki("probe returns 0", 0, probe());
 	check("deferred", DEFERRED, snap());
-	check("logged", "info: probe failed (-6), retrying every 5 s for up to 120 s", log_find("probe failed ("));
+	check("logged", "info: probe failed (-6), retrying every 5 s for up to 300 s", log_find("probe failed ("));
 	begin("P16, power-up times out");
 	SCRIPT(W.power_up, -ETIMEDOUT);
 	checki("probe returns 0", 0, probe());
@@ -206,15 +206,15 @@ static void retries(void)
 	check("logged", "info: probe retry 1 succeeded, 5000 ms after the probe failed", log_find("probe retry"));
 }
 
-/* Attempts start 5 s apart (back to back when one takes longer), none later than 120 s */
+/* Attempts start 5 s apart (back to back when one takes longer), none later than 300 s */
 static void timing(void)
 {
 	char starts[2048] = "", delays[2048] = "5000 ";
 	const unsigned long wrap = (unsigned long)-1 - msecs_to_jiffies(30000);
 
-	for (unsigned int ms = 5000; ms <= 120000; ms += 5000)
+	for (unsigned int ms = 5000; ms <= 300000; ms += 5000)
 		addf(starts, sizeof(starts), "%u ", ms);
-	for (int i = 1; i < 24; i++)
+	for (int i = 1; i < 60; i++)
 		addf(delays, sizeof(delays), "3000 ");
 	for (int w = 0; w < 2; w++) {
 		begin("never answers, attempts of 2 s%s", w ? ", jiffies wrapping" : "");
@@ -222,12 +222,12 @@ static void timing(void)
 		if (w)
 			jiffies = wrap;
 		probe();
-		checki("24 retries", 24, run_all());
-		check("they start every 5 s, the last at 120 s", starts, W.starts);
+		checki("60 retries", 60, run_all());
+		check("they start every 5 s, the last at 300 s", starts, W.starts);
 		check("each queued for 5 s after its start", delays, W.delays);
-		check("logged as a warning", "warn: giving up after 24 probe retries in 122000 ms: -110", log_find("giving up"));
+		check("logged as a warning", "warn: giving up after 60 probe retries in 302000 ms: -110", log_find("giving up"));
 		check("gave up, nothing held",
-		      "state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=25 down=25 wake=off work=idle bufs=1/0 bad=",
+		      "state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=61 down=61 wake=off work=idle bufs=1/0 bad=",
 		      snap());
 	}
 
@@ -235,26 +235,28 @@ static void timing(void)
 	W.timeout_ms = 7000;
 	W.desc.dflt = -ETIMEDOUT;
 	probe();
-	checki("17 retries", 17, run_all());
+	checki("43 retries", 43, run_all());
 	starts[0] = 0;
-	for (unsigned int ms = 5000; ms <= 117000; ms += 7000)
+	for (unsigned int ms = 5000; ms <= 299000; ms += 7000)
 		addf(starts, sizeof(starts), "%u ", ms);
-	check("they start back to back, none after 120 s", starts, W.starts);
-	check("queued without a delay",
-	      "5000 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ", W.delays);
-	check("logged", "warn: giving up after 17 probe retries in 124000 ms: -110", log_find("giving up"));
+	check("they start back to back, none after 300 s", starts, W.starts);
+	strcpy(delays, "5000 ");
+	for (int i = 1; i < 43; i++)
+		addf(delays, sizeof(delays), "0 ");
+	check("queued without a delay", delays, W.delays);
+	check("logged", "warn: giving up after 43 probe retries in 306000 ms: -110", log_find("giving up"));
 
-	/* The retry at 113 s was due at 118 s, but ends at 122 s: no retry then */
+	/* The retry at 293 s was due at 298 s, but ends at 302 s: no retry then */
 	begin("never answers, attempts of 9 s");
 	W.timeout_ms = 9000;
 	W.desc.dflt = -ETIMEDOUT;
 	probe();
-	checki("13 retries", 13, run_all());
+	checki("33 retries", 33, run_all());
 	starts[0] = 0;
-	for (unsigned int ms = 5000; ms <= 113000; ms += 9000)
+	for (unsigned int ms = 5000; ms <= 293000; ms += 9000)
 		addf(starts, sizeof(starts), "%u ", ms);
-	check("none starts after 120 s", starts, W.starts);
-	check("logged", "warn: giving up after 13 probe retries in 122000 ms: -110", log_find("giving up"));
+	check("none starts after 300 s", starts, W.starts);
+	check("logged", "warn: giving up after 33 probe retries in 302000 ms: -110", log_find("giving up"));
 }
 
 static void cases_probe(void)

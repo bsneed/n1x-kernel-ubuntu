@@ -1,4 +1,4 @@
-From bbaaaa2d258c5b7f0c3710143537dfba6fca99b0 Mon Sep 17 00:00:00 2001
+From 83f3ed62eb6d10dd6d458c1ad22906a6b540fa3a Mon Sep 17 00:00:00 2001
 From: Brandon Sneed <brandon@redf.net>
 Date: Mon, 23 Nov 2026 10:30:00 -0800
 Subject: [PATCH] HID: i2c-hid: retry a failed probe in the background on the
@@ -36,12 +36,12 @@ disabled (nothing would handle its wake IRQ), and a delayed work on
 system_freezable_wq repeats what probe does. The first retry starts
 5 s after the failure, each next one 5 s after the previous one
 started (right after it, if it took longer), and none starts later
-than 120 s after the failure. A retry sends a HID RESET first only if
+than 300 s after the failure. A retry sends a HID RESET first only if
 an earlier attempt read a valid HID descriptor, because the command
 register comes from it: while every descriptor fetch fails, as in the
 usual failure, no RESET is sent. A retry that brings the device up
 enables its wakeup again if it was enabled. It logs:
-  probe failed (%d), retrying every 5 s for up to 120 s
+  probe failed (%d), retrying every 5 s for up to 300 s
   probe retry N succeeded, M ms after the probe failed
   giving up after N probe retries in M ms: %d
 To keep the I2C error for that test, the descriptor fetch returns it
@@ -54,6 +54,12 @@ stop the work the same way and resume it afterwards on the same
 schedule (jiffies don't count the time asleep). Every other machine,
 every other error, and panel followers behave as before.
 
+Why 300 s: with this patch retrying for 120 s, on a restart with the
+charger in, the keyboard, the touchpad and the ASUS device all gave up
+at 118.6 s after 23 retries, then answered on their own: the keyboard
+at about 140 s of uptime, the touchpad at 154 s, the ASUS device at
+166 s. The touchscreen, on the keyboard's bus, came up at 5.2 s.
+
 Drop it when upstream i2c-hid retries such probes itself (then build.sh's
 patch -N fails on it), or when ASUS firmware answers in time at boot.
 
@@ -63,7 +69,7 @@ Signed-off-by: Brandon Sneed <brandon@redf.net>
  1 file changed, 244 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/hid/i2c-hid/i2c-hid-core.c b/drivers/hid/i2c-hid/i2c-hid-core.c
-index a61fd1d..3bf7099 100644
+index a61fd1d..cbbc703 100644
 --- a/drivers/hid/i2c-hid/i2c-hid-core.c
 +++ b/drivers/hid/i2c-hid/i2c-hid-core.c
 @@ -24,6 +24,7 @@
@@ -88,7 +94,7 @@ index a61fd1d..3bf7099 100644
  
 +/* Background retries of a failed probe, on the machines in i2c_hid_probe_retry_dmi */
 +#define I2C_HID_PROBE_RETRY_INTERVAL_MS	5000
-+#define I2C_HID_PROBE_RETRY_TIMEOUT_MS	120000
++#define I2C_HID_PROBE_RETRY_TIMEOUT_MS	300000
 +
 +enum i2c_hid_probe_retry_state {
 +	I2C_HID_PROBE_RETRY_NONE,	/* probe did not defer */

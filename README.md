@@ -231,7 +231,7 @@ Billboard devices.
 - The kernel is kernel.org 7.3, as Omarchy's recipe pins it, without the 7.3.x stable fixes
   except the MT7925 reset fix in `patches/ubuntu/`.
 - On some boots the P16's keyboard, touchpad and touchscreen don't answer at first (since
-  touchpad firmware V1.26.0918.1). This kernel retries them for up to 2 minutes, so they can
+  touchpad firmware V1.26.0918.1). This kernel retries them for up to 5 minutes, so they can
   take that long to work; any other kernel, Ubuntu's included, leaves them dead until they are
   rebound by hand or the next boot ([docs/i2c-hid-probe-retry.md](docs/i2c-hid-probe-retry.md)).
 - `thunderbolt-platform NVDA8100: RX overflow for ring 0` appears in the kernel log when a dock

@@ -125,7 +125,7 @@ eq "0002: the DMI table holds only the P16 H7607BA" \
 	'.ident = "ASUS ProArt P16 H7607BA",|DMI_MATCH(DMI_SYS_VENDOR, "ASUS"),|DMI_MATCH(DMI_PRODUCT_NAME, "H7607BA"),|{ }' \
 	"$(fn 'static const struct dmi_system_id i2c_hid_probe_retry_dmi' | grep -e ident -e DMI_MATCH -e '{ }' | tr -d '\t' | paste -sd'|' -)"
 eq "0002: includes linux/dmi.h" 1 "$(grep -c '^#include <linux/dmi.h>$' "$C")"
-eq "0002: every 5 s for up to 120 s" "5000 120000" \
+eq "0002: every 5 s for up to 300 s" "5000 300000" \
 	"$(sed -n 's/^#define I2C_HID_PROBE_RETRY_\(INTERVAL\|TIMEOUT\)_MS\t*\([0-9]*\)$/\2/p' "$C" | paste -sd' ' -)"
 eq "0002: includes linux/workqueue.h" 1 "$(grep -c '^#include <linux/workqueue.h>$' "$C")"
 # What the retry does (which machines and errors, the timing, remove, shutdown and system sleep in
