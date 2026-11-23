@@ -118,6 +118,14 @@ eq "module: no name" 1 "$(i2c_hid_has_retry ""; echo $?)"
 eq "module: a directory" 1 "$(i2c_hid_has_retry "$M"; echo $?)"
 printf '%s\n' "$I2C_HID_RETRY_MARK" | head -c 20 >"$M/half.ko"
 eq "module: half the mark" 1 "$(i2c_hid_has_retry "$M/half.ko"; echo $?)"
+# A module with the mark near its start and 256 kB after it (random, so it doesn't compress), for
+# compressed files cut in half: the decompressor writes out the start, mark and all, then fails.
+{ cat "$M/i2c-hid.ko"; head -c 262144 /dev/urandom; } >"$M/big.ko"
+cut_half() { head -c $(($(wc -c <"$1") / 2)) "$1"; } # cut_half FILE: its first half
+cut_check() { # cut_check zstd|xz FILE: whether FILE decompresses, and whether what comes out has the mark
+	if "$1" -dcq -- "$2" >"$M/cut.out" 2>/dev/null; then echo decompresses; else echo fails; fi
+	if LC_ALL=C grep -qaF -- "$I2C_HID_RETRY_MARK" "$M/cut.out"; then echo after the mark; fi
+}
 if command -v zstd >/dev/null; then
 	zstd -q -c "$M/i2c-hid.ko" >"$M/i2c-hid.ko.zst"
 	zstd -q -c "$M/n1x4.ko" >"$M/n1x4.ko.zst"
@@ -126,7 +134,9 @@ if command -v zstd >/dev/null; then
 	# Not compressed: zstd fails, even though the mark is in it.
 	cp "$M/i2c-hid.ko" "$M/plain.ko.zst"
 	eq "module: .ko.zst that is not zstd" 1 "$(i2c_hid_has_retry "$M/plain.ko.zst"; echo $?)"
-	head -c 40 "$M/i2c-hid.ko.zst" >"$M/cut.ko.zst"
+	zstd -q -c "$M/big.ko" >"$M/big.ko.zst"
+	cut_half "$M/big.ko.zst" >"$M/cut.ko.zst"
+	eq "module: a truncated .ko.zst fails after the mark" "fails after the mark" "$(cut_check zstd "$M/cut.ko.zst" | paste -sd' ' -)"
 	eq "module: truncated .ko.zst" 1 "$(i2c_hid_has_retry "$M/cut.ko.zst"; echo $?)"
 else
 	skip "module: .ko.zst" "no zstd"
@@ -138,6 +148,10 @@ if command -v xz >/dev/null; then
 	eq "module: .ko.xz without" 1 "$(i2c_hid_has_retry "$M/n1x4.ko.xz"; echo $?)"
 	cp "$M/i2c-hid.ko" "$M/plain.ko.xz"
 	eq "module: .ko.xz that is not xz" 1 "$(i2c_hid_has_retry "$M/plain.ko.xz"; echo $?)"
+	xz -q -c "$M/big.ko" >"$M/big.ko.xz"
+	cut_half "$M/big.ko.xz" >"$M/cut.ko.xz"
+	eq "module: a truncated .ko.xz fails after the mark" "fails after the mark" "$(cut_check xz "$M/cut.ko.xz" | paste -sd' ' -)"
+	eq "module: truncated .ko.xz" 1 "$(i2c_hid_has_retry "$M/cut.ko.xz"; echo $?)"
 else
 	skip "module: .ko.xz" "no xz"
 fi
@@ -161,4 +175,5 @@ if command -v zstd >/dev/null; then
 		"$(i2c_hid_retry_status "$M/i2c-hid.ko.zst" ABC123 ABC123 "$K")"
 fi
 eq "check.sh: only on the P16" 1 "$(grep -c '^if is_proart_p16; then$' scripts/check.sh)"
+unset -f cut_half cut_check
 unset Q M K P16
