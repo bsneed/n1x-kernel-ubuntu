@@ -25,7 +25,7 @@ tested. Everything was validated on BIOS 300; recheck after a BIOS update.
 
 | Piece | What it is |
 |---|---|
-| `linux-image-7.3.0-n1x2`, `linux-headers-7.3.0-n1x2` | kernel.org 7.3 + Omarchy's 579 kernel patches in the recipe's order + `patches/ubuntu/` (one 7.3.2 stable fix), on Ubuntu's `linux-nvidia` 7.0.0-1026 config + `config/n1x.config`, built with the kernel's `make bindeb-pkg`. It installs next to Ubuntu's kernels. |
+| `linux-image-7.3.0-n1x4`, `linux-headers-7.3.0-n1x4` | kernel.org 7.3 + Omarchy's 579 kernel patches in the recipe's order + `patches/ubuntu/` (one 7.3.2 stable fix, one i2c-hid quirk for the P16), on Ubuntu's `linux-nvidia` 7.0.0-1026 config + `config/n1x.config`, built with the kernel's `make bindeb-pkg`. It installs next to Ubuntu's kernels. |
 | `nvidia-n1x-dkms-620-open` | NVIDIA's open GPU kernel modules 620.73.04, built from the full source tree through DKMS, with Omarchy's seven N1x patches rebased onto 620 and one suspend fix (`patches/nvidia/`). It stands in for Ubuntu's `nvidia-dkms-620-open`, whose modules link NVIDIA's prebuilt `nv-kernel.o_binary` and `nv-modeset-kernel.o_binary`. Seven of the eight patches change that code, so they can't go in through Ubuntu's package. |
 | NVIDIA user space | Ubuntu's `nvidia-*-620` packages, 620.73.04 (validated with `620.73.04-0ubuntu0.26.04.1`, from `resolute-proposed`): the same set that proart-p16-linux's `install/02-nvidia.sh` installs for 615. |
 
@@ -66,6 +66,10 @@ Ubuntu user space.
 - **`patches/ubuntu/`**: deltas this packaging needs on top of Omarchy, applied after its
   patches the same way. 0001 is the 7.3.2 stable fix for an MT7925 Wi-Fi reset panic that hangs
   the P16 (upstream c182bfe944eb, CVE-2026-99560); it goes once the base is 7.3.2 or newer.
+  0002 (ours, not upstream) keeps the P16's I2C HID devices awake at shutdown, which with
+  touchpad firmware V1.26.0918.1 helps its keyboard and touchpad survive a restart, though
+  not reliably
+  ([docs/i2c-hid-warm-reboot.md](docs/i2c-hid-warm-reboot.md)).
   Ubuntu-specific needs are config-only (`config/n1x.config`).
 - **`patches/nvidia/`**: Omarchy's `nvidia-open-dkms` 0003–0009 (written for 615.78.08),
   rebased onto 620.73.04. None of them are in 620. 0003, 0004, 0006 and 0008 apply as they
@@ -177,16 +181,16 @@ On the laptop, with the packages in `out/` (copied there, or built there):
 
 ```sh
 sudo bash scripts/install.sh
-sudo reboot                      # boots 7.3.0-n1x2 once
-bash scripts/check.sh            # kernel, USB4, NVIDIA
+sudo reboot                      # boots 7.3.0-n1x4 once
+bash scripts/check.sh            # kernel, USB4, NVIDIA, P16 keyboard (sudo: initramfs too)
 sudo bash scripts/install.sh --default   # after a good boot: make it GRUB's default
 ```
 
 Secure Boot must be off (the kernel is signed with a throwaway key). `install.sh` checks
 everything it can, the whole apt transaction included, before it changes anything. It replaces
 only the packages of other NVIDIA driver versions, builds the NVIDIA modules for every kernel,
-pins the NVIDIA user space to 620.73.04, adds the USB4 `pci=` options, and boots the new
-kernel once. [docs/install.md](docs/install.md) has each step, the kernel command line, what
+pins the NVIDIA user space to 620.73.04, adds the USB4 `pci=` options, on the P16 loads the
+keyboard and touchpad's i2c-hid drivers from the initramfs, and boots the new kernel once. [docs/install.md](docs/install.md) has each step, the kernel command line, what
 `--remove` undoes and how updates work.
 
 ### Docks
@@ -227,6 +231,11 @@ Billboard devices.
   holds the installed user space at the module version.
 - The kernel is kernel.org 7.3, as Omarchy's recipe pins it, without the 7.3.x stable fixes
   except the MT7925 reset fix in `patches/ubuntu/`.
+- With touchpad firmware V1.26.0918.1 (from MyASUS in Windows), a restart can leave the
+  keyboard and touchpad dead, in GRUB too: always from a kernel without `patches/ubuntu/0002`
+  (Ubuntu's included), and sometimes even with it and the early i2c-hid load (1 of 2 on n1x4).
+  Use Power Off and power on instead of Restart. If they are dead, unplug the charger and hold
+  the power button for 30-60 s ([docs/i2c-hid-warm-reboot.md](docs/i2c-hid-warm-reboot.md)).
 - `thunderbolt-platform NVDA8100: RX overflow for ring 0` appears in the kernel log when a dock
   connects. Nothing has failed because of it.
 - Ubuntu's kernel SAUCE, AppArmor's Ubuntu-only extensions among them, is not in this kernel.

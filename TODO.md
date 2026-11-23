@@ -78,14 +78,19 @@ limitation into the README.
   not safety.
 - [ ] **SD reader warning on resume:** `Trying to free already-free IRQ 322` (mmc0, `sdhci-pci`, via
   pciehp on resume). Predates proart_battery 1.9; the reader comes back. Kernel side.
-- [ ] **Internal keyboard and touchpad stop working after touchpad firmware V1.26.0918.1**
-  (installed by Windows 2026-11-22). After some Linux sessions they are dead on the next boot
-  (`i2c_hid_acpi ... failed to fetch HID descriptor: -110` on MKB0001, ASTH0001 and the touchpad),
-  and also dead in GRUB, so the controllers are stuck below Linux; a cold boot or reloading
-  `i2c_hid_acpi` doesn't help. Booting Windows and restarting into Ubuntu brings them back
-  (`grub-reboot "Windows Boot Manager (on /dev/nvme0n1p1)"`). Seen after a warm reboot at 16:58
-  and 17:54; a shutdown + cold boot at 17:12 was fine. Suspend/resume alone doesn't trigger it.
-  Find what Linux sends that wedges them, and what Windows sends that unwedges them.
+- [ ] **Internal keyboard and touchpad dead after a restart, since touchpad firmware
+  V1.26.0918.1** (installed by Windows 2026-11-22). A restart from Linux leaves the keyboard
+  (MKB0001), the ASUS HID device (ASTH0001) and the touchpad dead, in GRUB too (`failed to fetch
+  HID descriptor: -110`). **Power Off and power on is reliable; use it.** Recovery from the
+  wedged state: charger out, hold the power button 30-60 s, power on.
+  - `patches/ubuntu/0002` (n1x4: no SET_POWER(SLEEP) at shutdown for any I2C HID device on the
+    P16) plus i2c-hid loaded from the initramfs (`install.sh`) is **not a reliable fix**: n1x4
+    passed 1 of 2 restarts; the second was dead in GRUB. n1x3 (sparing only the three, by HID
+    ID) failed its first restart. Results: [docs/i2c-hid-warm-reboot.md](docs/i2c-hid-warm-reboot.md).
+  - Intermittent, and the wedge happens at or after the shutdown, below Linux. Next: the
+    `i2c_mt65xx` controller's state at shutdown, the firmware's restart path, what Windows does
+    at shutdown (Windows restarts into Ubuntu worked once).
+  - Decide whether 0002 and the early load stay (PR #2 is a draft with this status).
 - [ ] **BIOS update** once ASUS publishes something newer than H7607BA.300 for this model (none
   as of 2026-11-21). The BIOS-300 baseline (ACPI dump and both `check.sh` outputs) is in
   `/home/bsneed/work/bios-300-baseline/` on rtx24 and spark1. Diff the new tables for `_PRW`, then
@@ -103,6 +108,8 @@ limitation into the README.
 
 - [ ] File the NVIDIA bug drafted in `docs/nvidia-gb20b-suspend.md`: 620.73.04 marks GB20B as
   power-management-unsupported and patch 0010 restores working s2idle.
+- [ ] Report the i2c-hid restart wedge to linux-input (and ASUS?) once it is understood: touchpad
+  firmware V1.26.0918.1 on the ProArt P16, the results in docs/i2c-hid-warm-reboot.md.
 - [ ] Confirm whether DGX Spark's GB10 (10de:2e12) is a GB20B (`PMC_BOOT_42` as root on spark1).
   0010 now exempts only the N1x laptop IDs either way; the answer belongs in the NVIDIA report.
 - [ ] Comment on NVIDIA/open-gpu-kernel-modules#1521 with our dock / charger / battery GPU clock
@@ -149,7 +156,12 @@ limitation into the README.
 ## rtx24 housekeeping
 
 - [ ] Remove passwordless sudo (`/etc/sudoers.d/90-bsneed-nopasswd`) once bring-up is done.
-- [ ] Decide on the touchpad (TP) firmware update MyASUS offers. Skipped for now: Leon's libinput
-  quirk and haptics are tuned to the current firmware.
+- [x] ~~Decide on the touchpad (TP) firmware update MyASUS offers.~~ Windows installed it
+  (V1.26.0918.1, 2026-11-22), which brought the restart wedge above. Recheck Leon's libinput
+  quirk and haptics on it.
+- [ ] Purge `linux-image/headers-7.3.0-n1x3` from rtx24 (the first 0002). Once the restart
+  wedge is settled, remove the hand-built i2c-hid test
+  module from n1x2 (`/lib/modules/7.3.0-n1x2/updates/i2chid-test/`, source `~/work/i2chid-test/`),
+  or keep it while n1x2 is a fallback (it keeps n1x2's restarts safe).
 - [ ] *(optional)* proart-p16-linux's `optional/ui-control.sh` (ydotool) for remote GUI testing.
 - [ ] *(optional)* Secure Boot with our own MOK key for the kernel and DKMS modules.

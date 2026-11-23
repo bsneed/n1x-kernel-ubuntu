@@ -53,6 +53,15 @@ or would install a NVIDIA 620 package of another version than 620.73.04. Then it
    the packaged unit without that line, with a header saying so. Every run of `install.sh`
    writes it again from the installed unit (run it after an NVIDIA update), and deletes it once
    the packaged unit no longer has the line. An override you wrote yourself is left alone.
+7. On the ProArt P16, has the initramfs load the keyboard and touchpad's i2c-hid drivers
+   (`i2c_mt65xx i2c_hid i2c_hid_acpi`) early: `/etc/dracut.conf.d/50-i2c-hid-early.conf`
+   (`force_drivers`) where dracut builds the initramfs (26.04's default), or a block between
+   two `n1x-kernel-ubuntu` marker lines in `/etc/initramfs-tools/modules` with
+   initramfs-tools. It writes this before it refreshes every initramfs. With touchpad firmware
+   V1.26.0918.1 they need it, and `patches/ubuntu/0002`, to survive a restart
+   ([i2c-hid-warm-reboot.md](i2c-hid-warm-reboot.md)). A drop-in of that name that sets
+   exactly the same, written by hand, becomes ours; one that sets anything else is left alone,
+   with a warning.
 
 It records what it replaced, and the NVIDIA 620 packages that were already installed, in
 `/var/lib/n1x-kernel-ubuntu`.
@@ -75,7 +84,8 @@ proart-p16-linux installs them by kernel, without the metapackage, and if the ar
 for that kernel its simulation stops before anything changes). It removes
 `nvidia-n1x-dkms-620-open` and the 620 user space (the 620 packages that were installed before
 stay, and Ubuntu's `nvidia-dkms-620-open` comes back), purges every `linux-image/headers-*-n1x*`
-package, removes the apt pin, our nvidia-persistenced override and our `pci=` options, and
+package, removes the apt pin, our nvidia-persistenced override, our early i2c-hid load and our `pci=`
+options, and
 points GRUB's default back at the kernel that was running at install time (Ubuntu's
 `linux-nvidia`; the newest installed one if that kernel is gone). It does that before it
 removes any package, so a failure partway through still boots that kernel. The kernel command
@@ -105,5 +115,5 @@ failure leaves a consistent 620 install that `--remove` can be run on again.
   NVIDIA modules from there.
 - **This kernel**: a new Omarchy pin or kernel.org version, a `patches/ubuntu` patch or a
   config change goes with `N1X_REVISION` raised in `sources`. Each revision is a new package
-  name (`linux-image-7.3.0-n1x2`), so it installs next to the previous one, as Ubuntu's
+  name (`linux-image-7.3.0-n1x4`), so it installs next to the previous one, as Ubuntu's
   kernels do.
