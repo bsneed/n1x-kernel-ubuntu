@@ -50,7 +50,9 @@ doesn't fail:
   descriptor read that registering the HID device does. Any other error fails the probe as
   before. Other machines, and panel-follower touchscreens, behave exactly as stock.
 - Probe returns 0, so the device stays bound to `i2c_hid_acpi`, but with nothing set up: its
-  IRQ freed, the HID device not added, the device powered down.
+  IRQ freed, the HID device not added, the device powered down, and its wakeup disabled (stock
+  leaves a device whose probe failed with no wakeup either; with it enabled, its wake IRQ would
+  be armed at every suspend with nothing to handle it).
 - A delayed work (on the freezable system workqueue, so it never blocks probe or boot) then
   does what probe does: power up, a HID RESET, check the address, fetch the descriptor, request
   the IRQ, add the HID device. The first retry starts 5 s after the failure, and each next one
@@ -59,6 +61,7 @@ doesn't fail:
   are at most 24. The RESET goes out only once an earlier attempt read a valid HID descriptor
   this boot, because the command register it is sent to comes from that descriptor; until then
   a retry starts straight at the address check.
+- A retry that brings the device up enables its wakeup again, if it was enabled.
 - Unbind/remove and shutdown cancel the work and wait for it. For a device that never came up
   they skip what assumes a working device (the sleep command, `free_irq()`). System suspend and
   hibernation stop the work the same way and start it again on resume, on the same schedule

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * n1x-kernel-ubuntu - harness.c's scenarios of remove, shutdown and system sleep (suspend and
- * resume, freeze and restore) in each state of the retry. Included by harness.c.
+ * resume, freeze and restore) in each state of the retry, and of wakeup. Included by harness.c.
  */
 
 enum { S_NONE, S_PENDING, S_UP, S_GAVE_UP };
@@ -27,9 +27,9 @@ static void removes(void)
 {
 	static const char *const after[] = {
 		"state=NONE irq=free req=1 free=1 add=1 destroy=1 up=1 down=1 wake=on work=idle bufs=1/1 bad=",
-		"state=PENDING irq=free req=0 free=0 add=0 destroy=1 up=1 down=1 wake=on work=idle bufs=1/1 bad=",
+		"state=PENDING irq=free req=0 free=0 add=0 destroy=1 up=1 down=1 wake=off work=idle bufs=1/1 bad=",
 		"state=UP irq=free req=1 free=1 add=1 destroy=1 up=2 down=2 wake=on work=idle bufs=1/1 bad=",
-		"state=GAVE_UP irq=free req=0 free=0 add=0 destroy=1 up=2 down=2 wake=on work=idle bufs=1/1 bad=",
+		"state=GAVE_UP irq=free req=0 free=0 add=0 destroy=1 up=2 down=2 wake=off work=idle bufs=1/1 bad=",
 	};
 
 	for (int s = S_NONE; s <= S_GAVE_UP; s++) {
@@ -47,9 +47,9 @@ static void shutdowns(void)
 {
 	static const char *const after[] = {
 		"state=NONE irq=free req=1 free=1 add=1 destroy=0 up=1 down=0 wake=on work=idle bufs=1/0 bad=",
-		"state=PENDING irq=free req=0 free=0 add=0 destroy=0 up=1 down=1 wake=on work=idle bufs=1/0 bad=",
+		"state=PENDING irq=free req=0 free=0 add=0 destroy=0 up=1 down=1 wake=off work=idle bufs=1/0 bad=",
 		"state=UP irq=free req=1 free=1 add=1 destroy=0 up=2 down=1 wake=on work=idle bufs=1/0 bad=",
-		"state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=2 down=2 wake=on work=idle bufs=1/0 bad=",
+		"state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=2 down=2 wake=off work=idle bufs=1/0 bad=",
 	};
 
 	for (int s = S_NONE; s <= S_GAVE_UP; s++) {
@@ -67,15 +67,15 @@ static void system_sleep(void)
 {
 	static const char *const asleep[] = {
 		"state=NONE irq=disabled req=1 free=0 add=1 destroy=0 up=1 down=0 wake=on work=idle bufs=1/0 bad=",
-		"state=PENDING irq=free req=0 free=0 add=0 destroy=0 up=1 down=1 wake=on work=idle bufs=1/0 bad=",
+		"state=PENDING irq=free req=0 free=0 add=0 destroy=0 up=1 down=1 wake=off work=idle bufs=1/0 bad=",
 		"state=UP irq=disabled req=1 free=0 add=1 destroy=0 up=2 down=1 wake=on work=idle bufs=1/0 bad=",
-		"state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=2 down=2 wake=on work=idle bufs=1/0 bad=",
+		"state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=2 down=2 wake=off work=idle bufs=1/0 bad=",
 	};
 	static const char *const awake[] = {
 		"state=NONE irq=enabled req=1 free=0 add=1 destroy=0 up=1 down=0 wake=on work=idle bufs=1/0 bad=",
-		"state=PENDING irq=free req=0 free=0 add=0 destroy=0 up=1 down=1 wake=on work=queued bufs=1/0 bad=",
+		"state=PENDING irq=free req=0 free=0 add=0 destroy=0 up=1 down=1 wake=off work=queued bufs=1/0 bad=",
 		"state=UP irq=enabled req=1 free=0 add=1 destroy=0 up=2 down=1 wake=on work=idle bufs=1/0 bad=",
-		"state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=2 down=2 wake=on work=idle bufs=1/0 bad=",
+		"state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=2 down=2 wake=off work=idle bufs=1/0 bad=",
 	};
 	char want[160];
 
@@ -110,9 +110,39 @@ static void system_sleep(void)
 	check("up", "state=UP irq=enabled req=1 free=0 add=1 destroy=0 up=2 down=1 wake=on work=idle bufs=1/0 bad=", snap());
 }
 
+static void wakeups(void)
+{
+	begin("wakeup capable but disabled");
+	client.dev.wakeup = false;
+	SCRIPT(W.desc, -ETIMEDOUT);
+	probe();
+	checki("not disabled again", 0, client.dev.wakeup_disables);
+	run_all();
+	check("up, wakeup still off",
+	      "state=UP irq=enabled req=1 free=0 add=1 destroy=0 up=2 down=1 wake=off work=idle bufs=1/0 bad=", snap());
+	checki("not enabled", 0, client.dev.wakeup_enables);
+
+	begin("not wakeup capable");
+	client.dev.can_wakeup = false;
+	SCRIPT(W.desc, -ETIMEDOUT);
+	probe();
+	run_all();
+	check("up, wakeup off",
+	      "state=UP irq=enabled req=1 free=0 add=1 destroy=0 up=2 down=1 wake=off work=idle bufs=1/0 bad=", snap());
+	checki("nothing enabled", 0, client.dev.wakeup_enables + client.dev.wakeup_disables);
+
+	begin("gave up with wakeup enabled at probe");
+	SCRIPT(W.desc, -ETIMEDOUT, -EIO);
+	probe();
+	run_all();
+	check("wakeup stays off", "off", device_may_wakeup(&client.dev) ? "on" : "off");
+	checki("not enabled again", 0, client.dev.wakeup_enables);
+}
+
 static void cases_teardown(void)
 {
 	removes();
 	shutdowns();
 	system_sleep();
+	wakeups();
 }

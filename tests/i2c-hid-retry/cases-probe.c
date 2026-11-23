@@ -5,7 +5,7 @@
  * Included by harness.c.
  */
 
-#define DEFERRED "state=PENDING irq=free req=0 free=0 add=0 destroy=0 up=1 down=1 wake=on work=queued bufs=1/0 bad="
+#define DEFERRED "state=PENDING irq=free req=0 free=0 add=0 destroy=0 up=1 down=1 wake=off work=queued bufs=1/0 bad="
 #define FAILED "state=NONE irq=free req=0 free=0 add=0 destroy=1 up=1 down=1 wake=on work=idle bufs=1/1 bad="
 #define FAILED_LOG "info: probe failed (-110), retrying every 5 s for up to 120 s"
 
@@ -84,9 +84,10 @@ static void deferred_probes(void)
 		W.vendor = vendors[i];
 		SCRIPT(W.desc, -ETIMEDOUT);
 		checki("probe returns 0", 0, probe());
-		check("deferred: nothing held, first retry queued", DEFERRED, snap());
+		check("deferred: nothing held, wakeup off, first retry queued", DEFERRED, snap());
 		check("logged once, as info", FAILED_LOG, log_find("probe failed ("));
 		check("the first retry 5 s after the failure", "5000 ", W.delays);
+		checki("wakeup disabled once", 1, client.dev.wakeup_disables);
 	}
 	begin("P16, descriptor -ENXIO");
 	SCRIPT(W.desc, -ENXIO);
@@ -102,7 +103,7 @@ static void deferred_probes(void)
 	SCRIPT(W.power_up, -ETIMEDOUT);
 	checki("probe returns 0", 0, probe());
 	check("deferred",
-	      "state=PENDING irq=free req=0 free=0 add=0 destroy=0 up=0 down=0 wake=on work=queued bufs=1/0 bad=", snap());
+	      "state=PENDING irq=free req=0 free=0 add=0 destroy=0 up=0 down=0 wake=off work=queued bufs=1/0 bad=", snap());
 	begin("P16, IRQ request -ENXIO");
 	SCRIPT(W.irq, -ENXIO);
 	checki("probe returns 0", 0, probe());
@@ -111,7 +112,7 @@ static void deferred_probes(void)
 	SCRIPT(W.add, -ETIMEDOUT);
 	checki("probe returns 0", 0, probe());
 	check("deferred, its IRQ freed",
-	      "state=PENDING irq=free req=1 free=1 add=0 destroy=0 up=1 down=1 wake=on work=queued bufs=1/0 bad=", snap());
+	      "state=PENDING irq=free req=1 free=1 add=0 destroy=0 up=1 down=1 wake=off work=queued bufs=1/0 bad=", snap());
 }
 
 static void retries(void)
@@ -120,12 +121,13 @@ static void retries(void)
 	SCRIPT(W.desc, -ETIMEDOUT);
 	probe();
 	checki("one retry ran", 1, run_all());
-	check("up",
+	check("up, wakeup on again",
 	      "state=UP irq=enabled req=1 free=0 add=1 destroy=0 up=2 down=1 wake=on work=idle bufs=1/0 bad=", snap());
 	check("logged as info", "info: probe retry 1 succeeded, 5000 ms after the probe failed", log_find("probe retry"));
 	check("no give-up", "", log_find("giving up"));
 	check("no RESET before a descriptor was read", "", W.resets);
 	check("what it did", "power_up addr desc irq add", attempt(1));
+	checki("wakeup enabled once", 1, client.dev.wakeup_enables);
 
 	begin("a retry whose IRQ request fails with -ENXIO");
 	SCRIPT(W.desc, -ETIMEDOUT);
@@ -142,7 +144,7 @@ static void retries(void)
 	probe();
 	checki("gives up after it", 1, run_all());
 	check("gave up, nothing held",
-	      "state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=2 down=2 wake=on work=idle bufs=1/0 bad=", snap());
+	      "state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=2 down=2 wake=off work=idle bufs=1/0 bad=", snap());
 	check("logged as a warning", "warn: giving up after 1 probe retries in 5000 ms: -16", log_find("giving up"));
 
 	begin("a retry whose power-up times out");
@@ -160,7 +162,7 @@ static void retries(void)
 	probe();
 	checki("gives up after it", 1, run_all());
 	check("logged", "warn: giving up after 1 probe retries in 5000 ms: -5", log_find("giving up"));
-	check("gave up", "state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=1 down=1 wake=on work=idle bufs=1/0 bad=",
+	check("gave up", "state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=1 down=1 wake=off work=idle bufs=1/0 bad=",
 	      snap());
 
 	begin("a retry whose descriptor read fails with -EIO");
@@ -169,7 +171,7 @@ static void retries(void)
 	checki("gives up after it", 1, run_all());
 	check("logged", "warn: giving up after 1 probe retries in 5000 ms: -19", log_find("giving up"));
 	check("no success", "", log_find("succeeded"));
-	check("gave up", "state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=2 down=2 wake=on work=idle bufs=1/0 bad=",
+	check("gave up", "state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=2 down=2 wake=off work=idle bufs=1/0 bad=",
 	      snap());
 
 	/* A descriptor was read (then hid add timed out): retries RESET first, to its register */
@@ -225,7 +227,7 @@ static void timing(void)
 		check("each queued for 5 s after its start", delays, W.delays);
 		check("logged as a warning", "warn: giving up after 24 probe retries in 122000 ms: -110", log_find("giving up"));
 		check("gave up, nothing held",
-		      "state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=25 down=25 wake=on work=idle bufs=1/0 bad=",
+		      "state=GAVE_UP irq=free req=0 free=0 add=0 destroy=0 up=25 down=25 wake=off work=idle bufs=1/0 bad=",
 		      snap());
 	}
 
