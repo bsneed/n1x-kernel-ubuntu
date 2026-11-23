@@ -65,6 +65,18 @@ limitation into the README.
   and Wi-Fi WoWLAN do not. BIOS 300's DSDT gives the PCIe root ports (`RP0`) `_S0W 0x04` but no
   `_PRW` (see seankd3/asus-proart-p16-rtx-spark-linux#10). Try an SSDT override from the initramfs
   that adds `_PRW`, then retest Wi-Fi and dock wake.
+- [ ] **Closing the lid doesn't suspend.** ACPI `LID0` (PNP0C0D) always reads "open": its `_LID`
+  returns `EC0.GLID()`, an EC call over FF-A, and no lid event has ever reached logind on rtx24.
+  With the lid closed, the EC flashes the front white LED (its sleep indicator) while Linux stays
+  awake. Workaround: suspend from the menu or the power button first. Next: query `GLID` with
+  proart-p16-linux's `tools/ffa-probe.sh` lid open vs closed, to see whether the EC answers
+  wrongly or Linux reads it wrongly. Possibly the same EC event gap as the missing `_PRW` above.
+- [ ] **Touchpad firmware V1.26.0918.1** (installed by Windows 2026-11-22). The first Linux
+  boots afterwards had no internal keyboard or touchpad (`i2c_hid_acpi ... failed to fetch HID
+  descriptor: -110` on MKB0001 and the touchpad; the Asus keyboard handshake returned zeros).
+  A boot through Windows, then a cold boot, cleared it. If it comes back: try
+  `modprobe -r i2c_hid_acpi; modprobe i2c_hid_acpi`, and check whether Leon's libinput quirk and
+  haptics still fit the new firmware.
 - [ ] **BIOS update** once ASUS publishes something newer than H7607BA.300 for this model (none
   as of 2026-11-21). The BIOS-300 baseline (ACPI dump and both `check.sh` outputs) is in
   `/home/bsneed/work/bios-300-baseline/` on rtx24 and spark1. Diff the new tables for `_PRW`, then
