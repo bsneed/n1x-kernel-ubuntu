@@ -4,7 +4,8 @@
 #
 # Why: one place to see that the running kernel is ours, the USB4 host routers are bound,
 # a dock is enumerated and authorized, the NVIDIA modules match the user space, and what
-# scripts/install.sh set up (apt pin, nvidia-persistenced override) is in place.
+# scripts/install.sh set up (apt pin, nvidia-persistenced override) is in place, and on the
+# ProArt P16 that i2c-hid has patches/ubuntu/0002 (its probe retry).
 # Prints one line per item: OK, WARN or FAIL (as proart-p16-linux's tools/check.sh does).
 # Remove: nothing to remove; it only reads.
 # Run with: bash scripts/check.sh
@@ -12,6 +13,7 @@ set -uo pipefail
 . "$(dirname "$0")/lib.sh"
 . "$(dirname "$0")/grub.sh"
 . "$(dirname "$0")/lib-nvidia.sh"
+. "$(dirname "$0")/lib-i2c-hid.sh"
 load_sources
 RELEASE=$(kernel_release "$KERNEL_VERSION" "$N1X_REVISION")
 
@@ -110,6 +112,13 @@ else WARN "no NVIDIA modules for: $nodkms"; fi
 
 if [[ -r $PERSISTENCED_UNIT ]]; then
 	s=$(persistenced_status "$PERSISTENCED_UNIT" "$PERSISTENCED_OVERRIDE")
+	"${s%% *}" "${s#* }"
+fi
+
+if is_proart_p16; then
+	echo "== Keyboard and touchpad (ProArt P16, docs/i2c-hid-probe-retry.md)"
+	s=$(i2c_hid_retry_status "$(modinfo -n i2c_hid 2>/dev/null)" "$(cat /sys/module/i2c_hid/srcversion 2>/dev/null)" \
+		"$(modinfo -F srcversion i2c_hid 2>/dev/null)" "$k")
 	"${s%% *}" "${s#* }"
 fi
 

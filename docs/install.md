@@ -53,6 +53,11 @@ or would install a NVIDIA 620 package of another version than 620.73.04. Then it
    the packaged unit without that line, with a header saying so. Every run of `install.sh`
    writes it again from the installed unit (run it after an NVIDIA update), and deletes it once
    the packaged unit no longer has the line. An override you wrote yourself is left alone.
+7. On the ProArt P16, deletes `/etc/dracut.conf.d/50-i2c-hid-early.conf` if `install.sh` wrote
+   it (the unreleased kernels 7.3.0-n1x3 and n1x4 loaded i2c-hid early from the initramfs),
+   before it refreshes every initramfs; `--remove` does the same. The probe retry in
+   `patches/ubuntu/0002` replaces it ([i2c-hid-probe-retry.md](i2c-hid-probe-retry.md)). A
+   file of that name you wrote yourself is left alone, with a warning.
 
 It records what it replaced, and the NVIDIA 620 packages that were already installed, in
 `/var/lib/n1x-kernel-ubuntu`.
@@ -105,5 +110,5 @@ failure leaves a consistent 620 install that `--remove` can be run on again.
   NVIDIA modules from there.
 - **This kernel**: a new Omarchy pin or kernel.org version, a `patches/ubuntu` patch or a
   config change goes with `N1X_REVISION` raised in `sources`. Each revision is a new package
-  name (`linux-image-7.3.0-n1x2`), so it installs next to the previous one, as Ubuntu's
+  name (`linux-image-7.3.0-n1x7`), so it installs next to the previous one, as Ubuntu's
   kernels do.

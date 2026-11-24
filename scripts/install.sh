@@ -14,6 +14,8 @@
 #  3. the USB4 PCI hotplug padding (pci=hpbussize=...) in GRUB_CMDLINE_LINUX_DEFAULT;
 #  4. an nvidia-persistenced unit without Ubuntu's boot-time ordering cycle, when needed
 #     (/etc/systemd/system/nvidia-persistenced.service).
+# On the ProArt P16 it deletes the early i2c-hid load that install.sh of the unreleased n1x3 and
+# n1x4 wrote (/etc/dracut.conf.d/50-i2c-hid-early.conf); patches/ubuntu/0002 replaces it.
 # Every apt transaction is simulated first; the install stops before changing anything if apt
 # can't do it or would remove something else.
 # GRUB's default stays the kernel you run now; the new kernel boots once on the next reboot
@@ -27,6 +29,7 @@ set -euo pipefail
 . "$(dirname "$0")/grub.sh"
 . "$(dirname "$0")/lib-nvidia.sh"
 . "$(dirname "$0")/lib-install.sh"
+. "$(dirname "$0")/lib-i2c-hid.sh"
 . "$(dirname "$0")/lib-steps.sh"
 
 DEBS=$REPO/out MODE=install
@@ -62,7 +65,7 @@ do_install() {
 	# shellcheck source=/dev/null
 	[[ $(. /etc/os-release && echo "$VERSION_ID") == 26.04 ]] || die "Ubuntu 26.04 only"
 	n1x_gpu >/dev/null || die "no RTX Spark N1X GPU (10de:2e03, 2e06 or 2e13): this is for N1x laptops only"
-	grep -q H7607BA /sys/class/dmi/id/product_name 2>/dev/null ||
+	is_proart_p16 ||
 		warn "tested on the ASUS ProArt P16 H7607BA only; this is $(cat /sys/class/dmi/id/product_name 2>/dev/null)"
 	! secure_boot_enabled || die "Secure Boot is on. This kernel is signed with a throwaway build" \
 		"key that the firmware and shim don't trust, so it would not boot. Turn Secure Boot off" \
@@ -128,6 +131,7 @@ do_install() {
 	# GRUB keeps $prev the default before any package changes, so every failure from here on boots it.
 	install_packages "$prev" "$TMP/pin" "${args[@]}"
 	dkms_all_kernels "$prev"
+	early_load_drop
 	# The kernel loads the NVIDIA modules from the initramfs; DKMS 3 rebuilds none of them.
 	msg "Refreshing every initramfs"
 	update-initramfs -u -k all ||
@@ -199,6 +203,7 @@ do_remove() {
 	# away from every kernel, 7.3 included: a failure from here on must leave it the default.
 	msg "Restoring NVIDIA: ${want[*]:-(none)}${remove[*]:+; removing ${remove[*]}}"
 	restore_packages "$prev" "$TMP/prefs/${PIN##*/}" install "${want[@]}" "${remove[@]/%/-}"
+	early_load_drop
 	update-initramfs -u -k all ||
 		die "update-initramfs failed (see above; is /boot full?). The NVIDIA packages are back and GRUB boots $prev by default; fix that and run --remove again"
 	persistenced_drop

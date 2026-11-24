@@ -22,7 +22,11 @@ BASE_CONFIG_FILE_SHA256=d93993d453eeb5aad943d7181b3bbc3b3f078088405c04a3a6511e84
 # Our revision of this kernel: uname -r is <kernel>-n1x<N>, e.g. 7.3.0-n1x2. Raise it with
 # every change to the kernel (patches/ubuntu, config): each revision is a new package.
 # 2: patches/ubuntu/0001 (mt7925 reset panic).
-N1X_REVISION=2
+# 3, 4: an i2c-hid shutdown quirk for the ProArt P16 that didn't help (PR #2, never released).
+# 5: patches/ubuntu/0002 (i2c-hid retries a failed probe on the ProArt P16).
+# 6: patches/ubuntu/0003 (i2c-mt65xx drives the MT8901 like the Windows driver does).
+# 7: 0003 reads any length through the FIFO, not only up to 16 bytes.
+N1X_REVISION=7
 
 # NVIDIA open kernel modules, built by our DKMS package with patches/nvidia.
 # Ubuntu's NVIDIA user space (nvidia-*-620) must be this upstream version; install.sh pins it.
@@ -36,4 +40,8 @@ NVIDIA_UBUNTU_VERSION=620.73.04-0ubuntu0.26.04.1
 # The package records the commit it was built from (SOURCE), so a rebuild from a new commit
 # needs a new revision too, or install.sh refuses it as "other files under the same version".
 # 3: no module change, rebuilt for N1X_REVISION 2.
-NVIDIA_N1X_REVISION=3
+# 4, 5: no module change, rebuilt for N1X_REVISION 3 and 4 (PR #2, never released).
+# 6: no module change, rebuilt for N1X_REVISION 5.
+# 7: no module change, rebuilt for N1X_REVISION 6.
+# 8: no module change, rebuilt for N1X_REVISION 7.
+NVIDIA_N1X_REVISION=8
