@@ -25,7 +25,7 @@ tested. Everything was validated on BIOS 300; recheck after a BIOS update.
 
 | Piece | What it is |
 |---|---|
-| `linux-image-7.3.0-n1x6`, `linux-headers-7.3.0-n1x6` | kernel.org 7.3 + Omarchy's 579 kernel patches in the recipe's order + `patches/ubuntu/` (one 7.3.2 stable fix, one i2c-hid probe retry and one i2c-mt65xx change for the P16), on Ubuntu's `linux-nvidia` 7.0.0-1026 config + `config/n1x.config`, built with the kernel's `make bindeb-pkg`. It installs next to Ubuntu's kernels. |
+| `linux-image-7.3.0-n1x7`, `linux-headers-7.3.0-n1x7` | kernel.org 7.3 + Omarchy's 579 kernel patches in the recipe's order + `patches/ubuntu/` (one 7.3.2 stable fix, one i2c-hid probe retry and one i2c-mt65xx change for the P16), on Ubuntu's `linux-nvidia` 7.0.0-1026 config + `config/n1x.config`, built with the kernel's `make bindeb-pkg`. It installs next to Ubuntu's kernels. |
 | `nvidia-n1x-dkms-620-open` | NVIDIA's open GPU kernel modules 620.73.04, built from the full source tree through DKMS, with Omarchy's seven N1x patches rebased onto 620 and one suspend fix (`patches/nvidia/`). It stands in for Ubuntu's `nvidia-dkms-620-open`, whose modules link NVIDIA's prebuilt `nv-kernel.o_binary` and `nv-modeset-kernel.o_binary`. Seven of the eight patches change that code, so they can't go in through Ubuntu's package. |
 | NVIDIA user space | Ubuntu's `nvidia-*-620` packages, 620.73.04 (validated with `620.73.04-0ubuntu0.26.04.1`, from `resolute-proposed`): the same set that proart-p16-linux's `install/02-nvidia.sh` installs for 615. |
 
@@ -183,7 +183,7 @@ On the laptop, with the packages in `out/` (copied there, or built there):
 
 ```sh
 sudo bash scripts/install.sh
-sudo reboot                      # boots 7.3.0-n1x6 once
+sudo reboot                      # boots 7.3.0-n1x7 once
 bash scripts/check.sh            # kernel, USB4, NVIDIA, P16 keyboard and touchpad
 sudo bash scripts/install.sh --default   # after a good boot: make it GRUB's default
 ```

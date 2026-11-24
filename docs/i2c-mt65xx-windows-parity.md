@@ -1,9 +1,9 @@
 # i2c-mt65xx on the MT8901, driven like Windows drives it (patches/ubuntu/0003)
 
 What `patches/ubuntu/0003` changes in the P16's I2C controller driver, why, and what is and
-isn't known. It is in kernel 7.3.0-n1x6. **Status:** the same code, as an out-of-tree module on
-7.3.0-n1x2, bound all four HID devices on the P16 and ran the stress below clean. As part of a
-packaged kernel it is not validated over boots yet.
+isn't known. It is in kernel 7.3.0-n1x7. **Status:** the same code, as an out-of-tree module on
+7.3.0-n1x6, bound all four HID devices on a P16 boot where DMA reads were hanging and ran the
+stress below clean. As part of a packaged kernel it is not validated over boots yet.
 
 ## What goes wrong
 
@@ -46,10 +46,13 @@ From the disassembly of `nvi2c.sys` (MediaTek's driver for the same IP):
 Three `mtk_i2c_compatible` fields, set only in `mt8901_compat`:
 
 - `reinit_per_xfer`: `mtk_i2c_do_transfer()` calls `mtk_i2c_init_hw()` first.
-- `fifo_depth = 16`: a transfer of at most 16 bytes in each direction goes through
+- `fifo_depth = 16`: a transfer that sends at most 16 bytes goes through
   `mtk_i2c_do_transfer_fifo()`: DMA off in `CONTROL`, bytes written to and read from
-  `DATA_PORT`. Every HID command and most input reports fit; report descriptors and long
-  reports still use DMA.
+  `DATA_PORT`. A read can be of any length: the controller holds the bus while its FIFO is
+  full and goes on when there is room (`FIFO_STAT` bits 4:0 count the bytes in the FIFO, bits
+  14:10 the bytes taken out), so `mtk_i2c_fifo_read()` empties the FIFO while the read runs.
+  This goes further than Windows, which uses DMA above 16 bytes. Only a transfer that sends
+  more than 16 bytes still uses DMA.
 - `dma_rx_done_wait`: after `TRANSAC_COMP` on a DMA read that wasn't NACKed, poll the RX
   channel for up to 20 ms (enable bit clear, or the RX bit of its `INT_FLAG` set). If it never
   finishes, the transfer times out (`-ETIMEDOUT`, controller reset) instead of returning a
@@ -59,9 +62,16 @@ Three `mtk_i2c_compatible` fields, set only in `mt8901_compat`:
 
 ## Evidence
 
-On a P16 in the bad state, per ten 1342-byte report descriptor reads on i2c-4 while i2c-1 and
-i2c-2 are hammered: the stock driver hung or truncated several; with the three changes, none
-(and 1390 of 1390 8-byte transfers on i2c-1 OK, through the FIFO).
+7.3.0-n1x6 had 0003 with only transfers of up to 16 bytes in each direction off DMA. Its
+second boot on the P16 was a bad one: all four devices bound, then the long reads hung, about
+15 in 5 minutes (the touchpad's 71-byte input reports, a 259-byte feature report, the
+keyboard's input reports). Nothing that went through the FIFO failed. The keyboard, after a
+read of its was cut off, raised its interrupt about 130 times a second and answered every read
+with zeros until i2c-hid was rebound to it; the touchpad recovered by itself.
+
+On that same boot, with reads of any length through the FIFO: 60 1342-byte report descriptor
+reads on i2c-4 and 60 144-byte reads on i2c-2 at the same time, all good, and no transfer
+timeout. With long reads switched back to DMA in the same minute, 1 of 10 hung.
 
 What didn't help, so isn't in the patch: a mutex across the controllers (worse), a reset after
 the transfer without waiting for the DMA, a fixed delay after the read, DMA buffers below 4 GB,
@@ -73,6 +83,10 @@ and `RX_LEN` as the "done" test (it reads 0 either way).
   stressing the bus. Earlier counts were taken with tests that themselves seem to make the
   next boot bad.
 - Whether 0003 covers the first seconds of a bad boot as well as it covers the stress.
+- Whether the FIFO can be fed during a long write the way it is emptied during a long read.
+  If so, DMA can go altogether.
+- i2c-hid doesn't reset a device after a failed read, so a device that a cut-off read confused
+  (the keyboard, above) stays dead until it is rebound.
 - Windows' PEP writes a `SuspendMode` flag to firmware that Linux's port doesn't. Untested.
 
 ## Checking a boot

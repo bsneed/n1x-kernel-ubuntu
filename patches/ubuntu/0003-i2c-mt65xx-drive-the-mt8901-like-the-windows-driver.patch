@@ -1,4 +1,4 @@
-From 386b45828245eaf47bd91d39a2aa4280a1c69536 Mon Sep 17 00:00:00 2001
+From 561a8465b8c80eb7d0ad6314837ea8c2b979a777 Mon Sep 17 00:00:00 2001
 From: Brandon Sneed <brandon@redf.net>
 Date: Mon, 23 Nov 2026 19:30:00 -0800
 Subject: [PATCH] i2c: mt65xx: drive the MT8901 controllers the way the
@@ -38,10 +38,18 @@ does for mt8901_compat only:
 - reinit_per_xfer: reset the controller and its DMA channel before
   every transfer (mtk_i2c_init_hw()), not only at probe, at resume and
   after a timeout.
-- fifo_depth = 16: a transfer of up to 16 bytes in each direction goes
-  through the FIFO (OFFSET_DATA_PORT) with DMA off. That is every HID
-  command and most input reports; only the long reads (report
-  descriptors, big reports) still use DMA.
+- fifo_depth = 16: a transfer that sends up to 16 bytes goes through
+  the FIFO (OFFSET_DATA_PORT) with DMA off. nvi2c.sys does that for
+  transfers of up to 16 bytes; this goes further and reads any length
+  through the FIFO, because with only the short transfers off DMA
+  (7.3.0-n1x6) the long reads still hung on the P16: 71-byte touchpad
+  input reports, 259-byte feature reports, the keyboard's input
+  reports, about 15 in the first 5 minutes of a bad boot, and a
+  keyboard whose read was cut off stayed dead until it was reset. The
+  controller holds the bus while its FIFO is full and goes on when
+  there is room (seen in FIFO_STAT on the P16), so the driver empties
+  the FIFO while the read runs. Only a transfer that sends more than 16
+  bytes still uses DMA.
 - dma_rx_done_wait: after TRANSAC_COMP on a DMA read, wait up to 20 ms
   for the RX channel to finish (its enable bit clear, or its RX
   interrupt flag set) before the buffer is unmapped. If it never
@@ -50,10 +58,10 @@ does for mt8901_compat only:
 
 The other compatibles are untouched: their flags are 0.
 
-With this, in a state where the unpatched driver hung or truncated
-several transfers in ten, the same stress (1342-byte report descriptor
-reads on i2c-4 while i2c-1 and i2c-2 are hammered) ran clean. It is a
-mitigation: what puts the SoC into that state is not known, and 0002
+With this, on a boot where DMA reads were hanging (1 in 10 1342-byte
+report descriptor reads on i2c-4, checked in the same minute), 60 such
+reads and 60 144-byte reads on i2c-2 at the same time ran clean, and
+all four devices bound. It is a mitigation: what puts the SoC into that state is not known, and 0002
 stays as the net under it.
 
 Drop it when upstream i2c-mt65xx does this for the MT8901 itself (then
@@ -62,13 +70,13 @@ fixes the cross-controller DMA fault.
 
 Signed-off-by: Brandon Sneed <brandon@redf.net>
 ---
- drivers/i2c/busses/i2c-mt65xx.c | 172 ++++++++++++++++++++++++++++++++
- 1 file changed, 172 insertions(+)
+ drivers/i2c/busses/i2c-mt65xx.c | 238 ++++++++++++++++++++++++++++++++
+ 1 file changed, 238 insertions(+)
 
 diff --git a/drivers/i2c/busses/i2c-mt65xx.c b/drivers/i2c/busses/i2c-mt65xx.c
 --- a/drivers/i2c/busses/i2c-mt65xx.c
 +++ b/drivers/i2c/busses/i2c-mt65xx.c
-@@ -62,11 +62,15 @@
+@@ -62,11 +62,20 @@
  #define I2C_DMA_DIR_CHANGE		0x0200
  #define I2C_DMA_START_EN		0x0001
  #define I2C_DMA_INT_FLAG_NONE		0x0000
@@ -78,13 +86,18 @@ diff --git a/drivers/i2c/busses/i2c-mt65xx.c b/drivers/i2c/busses/i2c-mt65xx.c
  #define I2C_DMA_HARD_RST		0x0002
  #define I2C_DMA_HANDSHAKE_RST		0x0004
  
++/* FIFO_STAT: bytes in the FIFO, and how many the controller has taken out */
++#define I2C_FIFO_STAT_CNT_MASK		0x001f
++#define I2C_FIFO_STAT_RD_PTR_SHIFT	10
++#define I2C_FIFO_STAT_RD_PTR_MASK	0x001f
++
 +/* How long the RX DMA may lag behind TRANSAC_COMP: polls of 20-30 us, 20 ms in all */
 +#define I2C_DMA_RX_DONE_POLLS		1000
 +
  #define MAX_SAMPLE_CNT_DIV		8
  #define MAX_STEP_CNT_DIV		64
  #define MAX_CLOCK_DIV_8BITS		256
-@@ -271,6 +275,22 @@
+@@ -271,6 +280,23 @@
  	unsigned char dma_sync: 1;
  	unsigned char ltiming_adjust: 1;
  	unsigned char apdma_sync: 1;
@@ -100,14 +113,15 @@ diff --git a/drivers/i2c/busses/i2c-mt65xx.c b/drivers/i2c/busses/i2c-mt65xx.c
 +	 */
 +	unsigned char dma_rx_done_wait: 1;
 +	/*
-+	 * Transfers of up to this many bytes in each direction go through
-+	 * the controller's FIFO with no DMA. 0: always use DMA.
++	 * Transfers that send up to this many bytes go through the
++	 * controller's FIFO with no DMA, whatever they read: the driver
++	 * empties the FIFO while a read runs. 0: always use DMA.
 +	 */
 +	unsigned char fifo_depth;
  	unsigned char max_dma_support;
  	/*
  	 * Parent clock rate to use when the platform does not expose a
-@@ -548,6 +568,9 @@
+@@ -548,6 +574,9 @@
  	.dma_sync = 0,
  	.ltiming_adjust = 1,
  	.apdma_sync = 1,
@@ -117,29 +131,76 @@ diff --git a/drivers/i2c/busses/i2c-mt65xx.c b/drivers/i2c/busses/i2c-mt65xx.c
  	.max_dma_support = 40,
  	/*
  	 * MT8901 I2C on firmware-managed platforms: the IP is clocked off
-@@ -1036,6 +1059,137 @@
+@@ -1036,6 +1065,197 @@
  		readl(i2c->pdmabase + OFFSET_RX_4G_MODE));
  }
  
 +/*
-+ * A transfer of up to fifo_depth bytes in each direction, through the
-+ * controller's FIFO: no DMA channel takes part.
++ * A transfer that sends up to fifo_depth bytes goes through the controller's
++ * FIFO: no DMA channel takes part. A read can be of any length.
 + */
 +static bool mtk_i2c_fits_fifo(struct mtk_i2c *i2c, struct i2c_msg *msgs)
 +{
 +	unsigned int depth = i2c->dev_comp->fifo_depth;
 +
-+	if (!depth || !msgs->len || msgs->len > depth)
++	if (!depth || !msgs->len)
++		return false;
++	if (i2c->op == I2C_MASTER_RD)
++		return true;
++	if (msgs->len > depth)
 +		return false;
 +	if (i2c->op == I2C_MASTER_WRRD)
-+		return (msgs + 1)->len && (msgs + 1)->len <= depth;
++		return (msgs + 1)->len;
 +	return true;
++}
++
++/*
++ * Read rd->len bytes out of the FIFO while the transfer runs. The controller
++ * holds the bus while the FIFO is full and goes on when there is room again,
++ * so the FIFO's depth doesn't limit a read. In a write-read the FIFO first
++ * holds the txlen bytes to send: nothing is read before the controller has
++ * taken them. Returns true if the transfer completed; *got is how many bytes
++ * were read.
++ */
++static bool mtk_i2c_fifo_read(struct mtk_i2c *i2c, struct i2c_msg *rd,
++			      unsigned int txlen, unsigned int *got)
++{
++	unsigned long deadline = jiffies + i2c->adap.timeout;
++	unsigned int n = 0;
++	bool done = false;
++	u16 stat;
++
++	for (;;) {
++		stat = mtk_i2c_readw(i2c, OFFSET_FIFO_STAT);
++		if (txlen && ((stat >> I2C_FIFO_STAT_RD_PTR_SHIFT) &
++			      I2C_FIFO_STAT_RD_PTR_MASK) == txlen)
++			txlen = 0;
++		if (!txlen && (stat & I2C_FIFO_STAT_CNT_MASK) && n < rd->len) {
++			rd->buf[n++] = mtk_i2c_readw(i2c, OFFSET_DATA_PORT);
++			continue;
++		}
++		if (done)
++			break;
++		if (try_wait_for_completion(&i2c->msg_complete)) {
++			/* once more, for what came in since FIFO_STAT was read */
++			done = true;
++			continue;
++		}
++		if (time_after(jiffies, deadline))
++			break;
++		usleep_range(100, 200);
++	}
++
++	*got = n;
++	return done;
 +}
 +
 +static int mtk_i2c_do_transfer_fifo(struct mtk_i2c *i2c, struct i2c_msg *msgs,
 +				    int num, int left_num)
 +{
 +	struct i2c_msg *wr = NULL, *rd = NULL;
++	unsigned int got = 0;
++	bool polled = false;
 +	u16 control_reg, start_reg, irqs;
 +	u16 restart_flag = 0;
 +	unsigned int i;
@@ -203,8 +264,13 @@ diff --git a/drivers/i2c/busses/i2c-mt65xx.c b/drivers/i2c/busses/i2c-mt65xx.c
 +	}
 +	mtk_i2c_writew(i2c, start_reg, OFFSET_START);
 +
-+	ret = wait_for_completion_timeout(&i2c->msg_complete,
-+					  i2c->adap.timeout);
++	if (rd && rd->len > i2c->dev_comp->fifo_depth) {
++		polled = true;
++		ret = mtk_i2c_fifo_read(i2c, rd, wr ? wr->len : 0, &got);
++	} else {
++		ret = wait_for_completion_timeout(&i2c->msg_complete,
++						  i2c->adap.timeout);
++	}
 +
 +	/* Clear interrupt mask */
 +	mtk_i2c_writew(i2c, ~irqs, OFFSET_INTR_MASK);
@@ -222,9 +288,17 @@ diff --git a/drivers/i2c/busses/i2c-mt65xx.c b/drivers/i2c/busses/i2c-mt65xx.c
 +		return -ENXIO;
 +	}
 +
-+	if (rd)
++	if (polled) {
++		if (got < rd->len) {
++			dev_dbg(i2c->dev, "addr: %x, read %u of %u bytes\n",
++				msgs->addr, got, rd->len);
++			mtk_i2c_init_hw(i2c);
++			return -EIO;
++		}
++	} else if (rd) {
 +		for (i = 0; i < rd->len; i++)
 +			rd->buf[i] = mtk_i2c_readw(i2c, OFFSET_DATA_PORT);
++	}
 +
 +	/* mtk_i2c_init_hw() left DMA on in CONTROL: the DMA path expects it */
 +	mtk_i2c_writew(i2c, mtk_i2c_readw(i2c, OFFSET_CONTROL) |
@@ -255,7 +329,7 @@ diff --git a/drivers/i2c/busses/i2c-mt65xx.c b/drivers/i2c/busses/i2c-mt65xx.c
  static int mtk_i2c_do_transfer(struct mtk_i2c *i2c, struct i2c_msg *msgs,
  			       int num, int left_num)
  {
-@@ -1052,6 +1206,12 @@
+@@ -1052,6 +1272,12 @@
  	dma_addr_t wpaddr = 0;
  	int ret;
  
@@ -268,7 +342,7 @@ diff --git a/drivers/i2c/busses/i2c-mt65xx.c b/drivers/i2c/busses/i2c-mt65xx.c
  	i2c->irq_stat = 0;
  
  	if (i2c->auto_restart)
-@@ -1240,6 +1400,18 @@
+@@ -1240,6 +1466,18 @@
  	ret = wait_for_completion_timeout(&i2c->msg_complete,
  					  i2c->adap.timeout);
  
