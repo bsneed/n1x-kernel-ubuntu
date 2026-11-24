@@ -81,21 +81,37 @@ limitation into the README.
 - [ ] **Internal keyboard and touchpad dead after some boots since touchpad firmware
   V1.26.0918.1** (installed by Windows 2026-11-22). `i2c_hid_acpi ... failed to fetch HID
   descriptor: -110` (or -6) on MKB0001, ASTH0001, the touchscreen and the touchpad, on cold
-  boots and restarts alike, so it is a boot-time probe race, not shutdown (PR #2's shutdown
-  quirk and early i2c-hid load didn't help and are gone). The devices are slow, not dead:
-  binding `i2c_hid_acpi` by hand 2-3 minutes later brings them back. `patches/ubuntu/0002`
-  (7.3.0-n1x5) retries the probe in the background, 5 s apart for up to 300 s
-  ([docs/i2c-hid-probe-retry.md](docs/i2c-hid-probe-retry.md)). On rtx24 it worked as designed
-  with 120 s, but on a bad restart the devices gave up at 118.6 s and answered at 140-166 s of
-  uptime, hence 300 s. With 300 s, ASTH0001 "came up" with a corrupted report descriptor
-  (hid-generic: `unbalanced collection`, -22) and its hotkeys stayed dead, so on the P16 0002
-  now checks the report descriptor's structure before adding the HID device and retries a bad
-  one. Still to do: verify the 300 s window and the descriptor check on rtx24 over several cold
-  boots and restarts (look for `probe retry N succeeded` and `report descriptor rejected`),
-  check that `install.sh` removed `/etc/dracut.conf.d/50-i2c-hid-early.conf` there, and report
-  it to linux-input. Deferred: after a give-up the device stays bound, so recovering it by hand
-  takes unbind then bind (a plain bind gets -EBUSY); releasing the driver from the retry work
-  would deadlock against remove.
+  boots and restarts alike, so nothing at shutdown causes it (PR #2's shutdown quirk and early
+  i2c-hid load didn't help and are gone). The cause is on the host: in some state of the SoC
+  the I2C controllers' DMA hangs transfers, cuts reads short or mixes up controllers, while
+  transfers through the FIFO never fail; Windows on the same firmware never shows it. What puts
+  the SoC in that state is not known.
+  `patches/ubuntu/0003` (7.3.0-n1x7) makes i2c-mt65xx reset the controller before every
+  transfer, as the Windows driver does, and send every read and every transfer that sends up to
+  16 bytes through the FIFO with no DMA
+  ([docs/i2c-mt65xx-windows-parity.md](docs/i2c-mt65xx-windows-parity.md)).
+  `patches/ubuntu/0002` (since n1x5) stays under it: i2c-hid retries a failed probe or a bad
+  report descriptor, 5 s apart for up to 300 s
+  ([docs/i2c-hid-probe-retry.md](docs/i2c-hid-probe-retry.md)).
+  On rtx24: n1x6, with only the short transfers off DMA, still hung about 15 long reads in 5
+  minutes of a bad boot and left the keyboard dead; on that same boot the n1x7 driver ran 120
+  long reads clean. n1x7's first boot and first suspend and resume were clean. Still to do:
+  - watch n1x7 over days of boots and lid closes; one clean boot proves little here;
+  - transfers that send more than 16 bytes still use DMA: see whether the FIFO can be fed
+    during a write, and drop DMA altogether;
+  - i2c-hid should reset a device after a failed read (a keyboard whose read was cut off
+    stayed dead until it was rebound);
+  - reset the controller only before the first message of a repeated-start chain (i2c-hid
+    never sends a longer one), then report 0003 to linux-i2c and linux-mediatek, and 0002 to
+    linux-input;
+  - Windows' PEP writes a `SuspendMode` flag to firmware that Linux's port doesn't: untested,
+    and the one lead left on the cause;
+  - report the DMA fault to ASUS and NVIDIA;
+  - `scripts/check.sh` checks the module for 0002 but not for 0003;
+  - check that `install.sh` removed `/etc/dracut.conf.d/50-i2c-hid-early.conf` on rtx24;
+  - after a give-up of 0002 the device stays bound, so recovering it by hand takes unbind then
+    bind (a plain bind gets -EBUSY); releasing the driver from the retry work would deadlock
+    against remove.
 - [ ] **BIOS update** once ASUS publishes something newer than H7607BA.300 for this model (none
   as of 2026-11-21). The BIOS-300 baseline (ACPI dump and both `check.sh` outputs) is in
   `/home/bsneed/work/bios-300-baseline/` on rtx24 and spark1. Diff the new tables for `_PRW`, then

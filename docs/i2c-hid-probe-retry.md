@@ -1,7 +1,14 @@
 # Keyboard and touchpad dead after a boot (patches/ubuntu/0002)
 
 What `patches/ubuntu/0002` fixes on the ProArt P16, how it works, and how to read what it logs.
-It is in kernel 7.3.0-n1x5. **Status:** built and tested off the hardware (it compiles with
+It is in kernel 7.3.0-n1x5 and later. **Since 7.3.0-n1x7 it is the safety net, not the fix:**
+the failures come from the SoC's I2C DMA, not from slow devices, and `patches/ubuntu/0003`
+takes DMA out of the reads ([i2c-mt65xx-windows-parity.md](i2c-mt65xx-windows-parity.md)).
+Where this document says the devices are "slow" or "answer late", read "the controller's DMA
+hung or cut the transfer short"; 0002's header still has the old wording. 0002 stays for the
+transfers that can still fail, and on n1x6 it did bring back a touchpad whose probe timed out.
+
+**Status of 0002 itself:** built and tested off the hardware (it compiles with
 `W=1` without warnings, and `tests/t-i2c-hid-retry.sh` runs the patched code against a fake
 device: every state, error and teardown path below). On the P16 it works as designed, but its
 first 120 s window was too short, and a device that sent a corrupted report descriptor counted
@@ -33,9 +40,11 @@ What is known about it:
   shutdown causes it. (An earlier attempt,
   [PR #2](https://github.com/bsneed/n1x-kernel-ubuntu/pull/2), kept the devices awake at shutdown and loaded
   i2c-hid early from the initramfs; neither helped, and both are gone. #2 is superseded.)
-- The devices are slow, not dead. Binding `i2c_hid_acpi` to them by hand 2-3 minutes later
-  brought back the keyboard, the touchscreen and the touchpad; the ASUS device bound on a later
-  try.
+- Binding `i2c_hid_acpi` to them by hand 2-3 minutes later brought back the keyboard, the
+  touchscreen and the touchpad; the ASUS device bound on a later try. That read as "the devices
+  are slow, not dead". It was wrong: the devices answer at once, and what fails is the
+  controller's DMA, which hangs transfers for as long as the SoC is in a bad state
+  ([i2c-mt65xx-windows-parity.md](i2c-mt65xx-windows-parity.md)).
 - I2C traces of the failures show the controller stalled mid-transfer (`INTR_STAT` 0, nothing
   received), and an immediate retry of a stalled command often works.
 - The I2C domains are power-gated by NVIDIA's power-wrap driver over SCMI, not by ACPI. The
@@ -174,10 +183,10 @@ brought it up cleanly 5.4 s after that. Hence the report descriptor check above.
 
 ## Still to do
 
-- Verify the 300 s window and the report descriptor check on the P16: several cold boots and
-  restarts with n1x5 (restarts on the charger hit it most), watching for the log lines above
-  and checking that the keyboard, touchpad and ASUS device (its hotkeys) come back without a
-  rebind.
+- Watch boots of 7.3.0-n1x7 on the P16 for the log lines above. With 0003 a retry should be
+  rare; each one is a transfer that still failed and is worth a look.
+- After a failed read, reset the device. On n1x6 a keyboard whose read was cut off stayed dead,
+  bound and with its hid, until it was unbound and bound; no probe failed, so nothing retried.
 - A plain `bind` after a give-up ([After a give-up](#after-a-give-up)), if the manual unbind
   turns out to be needed in practice.
 - Report it to linux-input.
